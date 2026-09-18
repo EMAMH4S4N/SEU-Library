@@ -1,0 +1,8 @@
+void cube(float x,float y,float z,float sx,float sy,float sz)
+{
+    glPushMatrix();
+    glTranslatef(x,y,z);
+    glScalef(sx,sy,sz);
+    glutSolidCube(1.0f);
+    glPopMatrix();
+}
