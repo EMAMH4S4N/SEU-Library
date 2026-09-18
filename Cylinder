@@ -1,0 +1,36 @@
+void cylinder(float x,float y,float z,
+               float r,float h)
+{
+    GLUquadric* q=gluNewQuadric();
+
+    glPushMatrix();
+
+    glTranslatef(x,y,z);
+
+    glRotatef(-90,1,0,0);
+
+    gluCylinder(
+        q,
+        r,r,
+        h,
+        24,2
+    );
+
+    gluDisk(
+        q,
+        0,r,
+        24,1
+    );
+
+    glTranslatef(0,0,h);
+
+    gluDisk(
+        q,
+        0,r,
+        24,1
+    );
+
+    glPopMatrix();
+
+    gluDeleteQuadric(q);
+}
