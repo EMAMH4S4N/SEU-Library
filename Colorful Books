@@ -1,0 +1,32 @@
+void books(float x,float y,float z)
+{
+    float colors[8][3]=
+    {
+        {0.80f,0.05f,0.04f},
+        {0.04f,0.20f,0.75f},
+        {0.05f,0.55f,0.15f},
+        {0.95f,0.70f,0.05f},
+        {0.55f,0.08f,0.60f},
+        {0.95f,0.30f,0.04f},
+        {0.05f,0.55f,0.65f},
+        {0.65f,0.35f,0.08f}
+    };
+
+    for(int i=0;i<8;i++)
+    {
+        glColor3f(
+            colors[i][0],
+            colors[i][1],
+            colors[i][2]
+        );
+
+        cube(
+            x+i*0.20f,
+            y,
+            z,
+            0.16f,
+            0.75f,
+            0.55f
+        );
+    }
+}
