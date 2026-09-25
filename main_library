@@ -18,10 +18,157 @@ bool warping = false;
 
 float moveSpeed = 0.10f;
 
+float fanAngle = 0.0f;
+
+GLuint texWood = 0;
+GLuint texTile = 0;
+GLuint texWall = 0;
+
+void beginGlossyWood()
+{
+    glEnable(GL_LIGHTING);
+    glEnable(GL_LIGHT0);
+    glEnable(GL_COLOR_MATERIAL);
+    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+
+    GLfloat specular[] = {0.85f,0.85f,0.85f,1.0f};
+    GLfloat shininess[] = {80.0f};
+    glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, specular);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_SHININESS, shininess);
+}
+
+void endGlossyWood()
+{
+    glDisable(GL_LIGHTING);
+}
+float doubleDoorAngle = 0.0f;
+bool doubleDoorOpen = false;
+
+void makeProceduralTexture(GLuint &tex, int type)
+{
+    const int W = 256, H = 256;
+    unsigned char *data = new unsigned char[W * H * 3];
+
+    for(int y=0; y<H; ++y)
+    {
+        for(int x=0; x<W; ++x)
+        {
+            float fx = (float)x / (float)W;
+            float fy = (float)y / (float)H;
+            float r=0.8f, g=0.8f, b=0.8f;
+
+            if(type == 0) // wood
+            {
+                float grain = 0.5f + 0.5f*sinf(fx*34.0f + sinf(fy*12.0f)*0.8f);
+                float fine  = 0.5f + 0.5f*sinf(fx*190.0f + fy*9.0f);
+                r = 0.24f + 0.34f*grain + 0.035f*fine;
+                g = 0.07f + 0.15f*grain + 0.018f*fine;
+                b = 0.018f + 0.060f*grain;
+            }
+            else if(type == 1) // floor tile
+            {
+                int tx = x / 32;
+                int ty = y / 32;
+                bool edge = (x % 32 < 3) || (y % 32 < 3);
+                float shade = ((tx+ty)%2) ? 0.78f : 0.88f;
+                if(edge) shade = 0.55f;
+                r = g = b = shade;
+            }
+            else // wall
+            {
+                float noise = 0.96f + 0.04f*sinf(fx*55.0f)*sinf(fy*43.0f);
+                r = 0.78f*noise;
+                g = 0.75f*noise;
+                b = 0.70f*noise;
+            }
+
+            int i = (y*W+x)*3;
+            data[i+0] = (unsigned char)(255.0f*fminf(fmaxf(r,0.0f),1.0f));
+            data[i+1] = (unsigned char)(255.0f*fminf(fmaxf(g,0.0f),1.0f));
+            data[i+2] = (unsigned char)(255.0f*fminf(fmaxf(b,0.0f),1.0f));
+        }
+    }
+
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    gluBuild2DMipmaps(GL_TEXTURE_2D, GL_RGB, W, H, GL_RGB,
+                      GL_UNSIGNED_BYTE, data);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    delete [] data;
+}
+
+void texturedCube(float x,float y,float z,float sx,float sy,float sz,
+                  GLuint tex,float repeatX=1.0f,float repeatY=1.0f)
+{
+    glPushMatrix();
+    glTranslatef(x,y,z);
+    glScalef(sx,sy,sz);
+
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glColor3f(1.0f,1.0f,1.0f);
+
+    glBegin(GL_QUADS);
+
+    glNormal3f(0,0,1);
+    glTexCoord2f(0,0); glVertex3f(-0.5f,-0.5f,0.5f);
+    glTexCoord2f(repeatX,0); glVertex3f(0.5f,-0.5f,0.5f);
+    glTexCoord2f(repeatX,repeatY); glVertex3f(0.5f,0.5f,0.5f);
+    glTexCoord2f(0,repeatY); glVertex3f(-0.5f,0.5f,0.5f);
+
+    glNormal3f(0,0,-1);
+    glTexCoord2f(0,0); glVertex3f(0.5f,-0.5f,-0.5f);
+    glTexCoord2f(repeatX,0); glVertex3f(-0.5f,-0.5f,-0.5f);
+    glTexCoord2f(repeatX,repeatY); glVertex3f(-0.5f,0.5f,-0.5f);
+    glTexCoord2f(0,repeatY); glVertex3f(0.5f,0.5f,-0.5f);
+
+    glNormal3f(-1,0,0);
+    glTexCoord2f(0,0); glVertex3f(-0.5f,-0.5f,-0.5f);
+    glTexCoord2f(repeatX,0); glVertex3f(-0.5f,-0.5f,0.5f);
+    glTexCoord2f(repeatX,repeatY); glVertex3f(-0.5f,0.5f,0.5f);
+    glTexCoord2f(0,repeatY); glVertex3f(-0.5f,0.5f,-0.5f);
+
+    glNormal3f(1,0,0);
+    glTexCoord2f(0,0); glVertex3f(0.5f,-0.5f,0.5f);
+    glTexCoord2f(repeatX,0); glVertex3f(0.5f,-0.5f,-0.5f);
+    glTexCoord2f(repeatX,repeatY); glVertex3f(0.5f,0.5f,-0.5f);
+    glTexCoord2f(0,repeatY); glVertex3f(0.5f,0.5f,0.5f);
+
+    glNormal3f(0,1,0);
+    glTexCoord2f(0,0); glVertex3f(-0.5f,0.5f,0.5f);
+    glTexCoord2f(repeatX,0); glVertex3f(0.5f,0.5f,0.5f);
+    glTexCoord2f(repeatX,repeatY); glVertex3f(0.5f,0.5f,-0.5f);
+    glTexCoord2f(0,repeatY); glVertex3f(-0.5f,0.5f,-0.5f);
+
+    glNormal3f(0,-1,0);
+    glTexCoord2f(0,0); glVertex3f(-0.5f,-0.5f,-0.5f);
+    glTexCoord2f(repeatX,0); glVertex3f(0.5f,-0.5f,-0.5f);
+    glTexCoord2f(repeatX,repeatY); glVertex3f(0.5f,-0.5f,0.5f);
+    glTexCoord2f(0,repeatY); glVertex3f(-0.5f,-0.5f,0.5f);
+
+    glEnd();
+    glBindTexture(GL_TEXTURE_2D,0);
+    glDisable(GL_TEXTURE_2D);
+
+    glPopMatrix();
+}
+
 void setColor(float r,float g,float b)
 {
     glColor3f(r,g,b);
 }
+
+void setSkyBlueWallColor()
+{
+    glDisable(GL_TEXTURE_2D);
+    glColor3f(0.52f,0.72f,0.88f);
+}
+
 
 void cube(float x,float y,float z,float sx,float sy,float sz)
 {
@@ -42,7 +189,7 @@ void sphere(float x,float y,float z,float r)
 
 void cylinder(float x,float y,float z,float r,float h)
 {
-    GLUquadric* q=gluNewQuadric();
+    GLUquadric* q = gluNewQuadric();
 
     glPushMatrix();
     glTranslatef(x,y,z);
@@ -58,86 +205,109 @@ void cylinder(float x,float y,float z,float r,float h)
 
 void floor()
 {
-    setColor(0.28f,0.15f,0.08f);
-    cube(0,-0.15f,0,18.0f,0.3f,16.0f);
+    texturedCube(0,-0.15f,0,18.0f,0.30f,16.0f,texTile,18.0f,16.0f);
+}
 
-    setColor(0.40f,0.22f,0.10f);
-
-    for(float x=-8.5f;x<=8.5f;x+=0.5f)
-        cube(x,0.02f,0,0.035f,0.025f,15.5f);
-
-    for(float z=-7.5f;z<=7.5f;z+=0.5f)
-        cube(0,0.025f,z,17.5f,0.025f,0.035f);
+void ceiling()
+{
+    // Clean solid-white ceiling.
+    setColor(0.97f,0.97f,0.97f);
+    cube(0,7.9f,0,18.0f,0.25f,16.0f);
 }
 
 void walls()
 {
-    setColor(0.78f,0.75f,0.72f);
+    // ALL FOUR WALLS are one identical solid sky-blue color.
+    glPushAttrib(GL_ENABLE_BIT | GL_CURRENT_BIT | GL_LIGHTING_BIT);
 
-    cube(0,4.0f,-8.0f,18.0f,8.0f,0.25f);
-    cube(-9.0f,4.0f,0,0.25f,8.0f,16.0f);
-    cube(9.0f,4.0f,0,0.25f,8.0f,16.0f);
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_BLEND);
 
-    setColor(0.55f,0.52f,0.48f);
-    cube(0,7.95f,0,18.0f,0.20f,16.0f);
+    const float WR = 0.35f;
+    const float WG = 0.68f;
+    const float WB = 0.95f;
+
+    // Back wall
+    glColor3f(WR,WG,WB);
+    cube(0.0f,4.0f,-8.0f,18.0f,8.0f,0.25f);
+
+    // Left wall
+    glColor3f(WR,WG,WB);
+    cube(-9.0f,4.0f,0.0f,0.25f,8.0f,16.0f);
+
+    // Right wall
+    glColor3f(WR,WG,WB);
+    cube(9.0f,4.0f,0.0f,0.25f,8.0f,16.0f);
+
+    // Front wall — FULL, no opening.
+    // This removes the gray/clear-background area seen through the front.
+    glColor3f(WR,WG,WB);
+    cube(0.0f,4.0f,8.0f,18.0f,8.0f,0.25f);
+
+    glPopAttrib();
+
+    ceiling();
 }
 
-void windowObject(float x,float y,float z)
+
+void doubleWoodDoor(float x,float y,float z)
 {
-    setColor(0.12f,0.08f,0.04f);
-    cube(x,y,z,0.18f,2.8f,3.0f);
+    glPushMatrix();
+    glTranslatef(x,y,z);
 
-    setColor(0.25f,0.65f,0.90f);
-    cube(x+0.11f,y,z,0.04f,2.40f,2.60f);
+    // Fixed wooden frame: side posts + top beam only.
+    texturedCube(-2.05f,2.75f,0,0.34f,5.65f,0.34f,texWood,1.0f,4.0f);
+    texturedCube( 2.05f,2.75f,0,0.34f,5.65f,0.34f,texWood,1.0f,4.0f);
+    texturedCube(0,5.42f,0,4.35f,0.34f,0.34f,texWood,3.0f,1.0f);
 
-    setColor(0.90f,0.90f,0.85f);
+    // Pure black doorway background.
+    setColor(0.0f,0.0f,0.0f);
+    cube(0,2.72f,0.08f,3.72f,5.30f,0.08f);
 
-    cube(x+0.15f,y,z,0.06f,2.55f,0.10f);
-    cube(x+0.15f,y,z,0.06f,0.10f,2.70f);
+    // Left door leaf.
+    glPushMatrix();
+    glTranslatef(-1.84f,2.72f,0.08f);
+    glRotatef(-doubleDoorAngle,0,1,0);
+    glTranslatef(0.88f,0,0);
+    setColor(0.30f,0.12f,0.035f);
+    cube(0,0,0,1.76f,5.25f,0.18f);
+    setColor(0.78f,0.60f,0.25f);
+    sphere(0.66f,0,-0.15f,0.075f);
+    glPopMatrix();
 
-    cube(x+0.15f,y,z,0.06f,2.55f,0.10f);
-    cube(x+0.15f,y,z,0.06f,0.10f,2.70f);
+    // Right door leaf.
+    glPushMatrix();
+    glTranslatef(1.84f,2.72f,0.08f);
+    glRotatef(doubleDoorAngle,0,1,0);
+    glTranslatef(-0.88f,0,0);
+    setColor(0.30f,0.12f,0.035f);
+    cube(0,0,0,1.76f,5.25f,0.18f);
+    setColor(0.78f,0.60f,0.25f);
+    sphere(-0.66f,0,-0.15f,0.075f);
+    glPopMatrix();
 
-    cube(x+0.15f,y,z-1.30f,0.06f,2.55f,0.08f);
-    cube(x+0.15f,y,z+1.30f,0.06f,2.55f,0.08f);
-
-    cube(x+0.15f,y-1.25f,z,0.06f,0.08f,2.70f);
-    cube(x+0.15f,y+1.25f,z,0.06f,0.08f,2.70f);
+    glPopMatrix();
 }
 
-void picture(float x,float y,float z)
-{
-    setColor(0.12f,0.07f,0.03f);
-    cube(x,y,z,0.12f,1.10f,0.80f);
-
-    setColor(0.82f,0.80f,0.72f);
-    cube(x+0.07f,y,z,0.025f,0.88f,0.60f);
-
-    setColor(0.20f,0.20f,0.20f);
-    sphere(x+0.09f,y+0.12f,z,0.15f);
-
-    setColor(0.25f,0.25f,0.25f);
-    cube(x+0.09f,y-0.20f,z,0.30f,0.25f,0.03f);
-}
 
 void book(float x,float y,float z,
-          float w,float h,float d,
-          int c)
+          float w,float h,float d,int c)
 {
-    float colors[12][3]=
+    float colors[12][3] =
     {
-        {0.80f,0.05f,0.04f},
-        {0.04f,0.20f,0.75f},
-        {0.05f,0.55f,0.15f},
-        {0.95f,0.70f,0.05f},
-        {0.55f,0.08f,0.60f},
-        {0.95f,0.30f,0.04f},
-        {0.05f,0.55f,0.65f},
-        {0.65f,0.35f,0.08f},
-        {0.20f,0.20f,0.65f},
-        {0.70f,0.05f,0.30f},
-        {0.30f,0.60f,0.25f},
-        {0.55f,0.55f,0.10f}
+        {0.75f,0.05f,0.04f},
+        {0.04f,0.20f,0.72f},
+        {0.04f,0.50f,0.14f},
+        {0.92f,0.68f,0.05f},
+        {0.55f,0.08f,0.58f},
+        {0.90f,0.28f,0.03f},
+        {0.04f,0.55f,0.64f},
+        {0.58f,0.30f,0.08f},
+        {0.18f,0.18f,0.62f},
+        {0.68f,0.04f,0.28f},
+        {0.25f,0.58f,0.22f},
+        {0.52f,0.50f,0.08f}
     };
 
     setColor(colors[c%12][0],
@@ -147,94 +317,319 @@ void book(float x,float y,float z,
     cube(x,y,z,w,h,d);
 }
 
+
+
+
+
 void bookshelf(float x,float y,float z,
                float w,float h,float d)
 {
-    setColor(0.45f,0.25f,0.10f);
+    float backZ  = z - d/2.0f + 0.04f;
+    float frontZ = z + d/2.0f;
 
-    cube(x,y+h/2,z,w,0.16f,d);
-    cube(x,y-h/2,z,w,0.16f,d);
+    // Thick wooden back panel - same style as the front frame
+    texturedCube(x,y+h/2,backZ,w,h,0.18f,texWood,3.0f,3.0f);
 
-    cube(x-w/2+0.08f,y,z,0.16f,h,d);
-    cube(x+w/2-0.08f,y,z,0.16f,h,d);
+    // Left and right wooden side panels
+    texturedCube(x-w/2+0.10f,y+h/2,frontZ,
+         0.20f,h+0.12f,d+0.10f,texWood,1.0f,3.0f);
 
-    for(int i=1;i<4;i++)
-        cube(x,
-             y-h/2+i*(h/4.0f),
-             z,
-             w-0.12f,
-             0.10f,
-             d);
+    texturedCube(x+w/2-0.10f,y+h/2,frontZ,
+         0.20f,h+0.12f,d+0.10f,texWood,1.0f,3.0f);
 
-    for(int row=0;row<4;row++)
+    // Top and bottom wooden frame
+    texturedCube(x,y+h-0.08f,frontZ,
+         w+0.12f,0.18f,d+0.10f,texWood,4.0f,1.0f);
+
+    texturedCube(x,y+0.08f,frontZ,
+         w+0.12f,0.18f,d+0.10f,texWood,4.0f,1.0f);
+
+    // Six shelf levels.
+    // The first shelf is deliberately low so books do not float upward.
+    const int rows = 6;
+    float usableH = h - 0.42f;
+    float rowH = usableH / rows;
+
+    for(int r=0;r<rows;r++)
     {
-        float shelfY=
-            y-h/2+
-            0.35f+
-            row*(h/4.0f);
+        float shelfY = y + 0.30f + r*rowH;
 
-        float px=x-w/2+0.20f;
+        // Wooden shelf board
+        texturedCube(x,shelfY,frontZ,
+             w-0.16f,0.13f,d+0.02f,texWood,4.0f,1.0f);
 
-        for(int j=0;j<10;j++)
+        // Books sit directly on this shelf.
+        float px = x-w/2+0.18f;
+        float bookBase = shelfY + 0.07f;
+
+        for(int b=0;b<45 && px<x+w/2-0.16f;b++)
         {
-            float bw=0.13f+(j%3)*0.025f;
-            float bh=0.50f+(j%2)*0.10f;
+            float bw = 0.13f + 0.025f*((b+r)%4);
+            float bh = rowH*0.68f + 0.025f*((b+r)%3);
+
+            if(px+bw > x+w/2-0.16f)
+                bw = x+w/2-0.16f-px;
+
+            if(bw <= 0.02f)
+                break;
 
             book(px+bw/2,
-                 shelfY+bh/2,
-                 z-0.04f,
-                 bw,
-                 bh,
-                 d*0.78f,
-                 j+row);
+                 bookBase+bh/2,
+                 frontZ+0.09f,
+                 bw,bh,d*0.58f,
+                 (b*7+r*3)%12);
 
-            px+=bw+0.055f;
+            px += bw+0.025f;
         }
     }
+
+    // Thick bottom wooden plinth
+    texturedCube(x,y-0.02f,frontZ,
+         w+0.16f,0.28f,d+0.12f,texWood,4.0f,1.0f);
+}
+
+
+void column(float x,float z)
+{
+    setColor(0.33f,0.16f,0.055f);
+    cube(x,0.70f,z,0.65f,1.40f,0.65f);
+
+    setColor(0.88f,0.86f,0.80f);
+    cylinder(x,1.0f,z,0.25f,4.8f);
+
+    setColor(0.35f,0.17f,0.06f);
+    cube(x,5.82f,z,0.78f,0.30f,0.78f);
+    cube(x,6.15f,z,0.65f,0.20f,0.65f);
+}
+
+void arch(float x,float z,float width)
+{
+    setColor(0.34f,0.16f,0.055f);
+
+    cube(x-width/2,4.15f,z,
+         0.32f,3.8f,0.45f);
+
+    cube(x+width/2,4.15f,z,
+         0.32f,3.8f,0.45f);
+
+    cube(x,6.0f,z,
+         width+0.32f,0.35f,0.45f);
+
+    for(float a=0;a<=180;a+=15)
+    {
+        float rad=a*3.14159265f/180.0f;
+        float px=x+(width/2)*cos(rad);
+        float py=6.0f+(width/2)*sin(rad);
+
+        cube(px,py,z,
+             0.28f,0.28f,0.45f);
+    }
+}
+
+void windowObject(float x,float y,float z)
+{
+    // This window is designed for the BACK WALL (z = -7.82).
+    // It lies almost exactly on the wall instead of floating in the room.
+
+    // Outer wooden frame
+    setColor(0.30f,0.15f,0.05f);
+
+    cube(x,y,z,3.0f,4.0f,0.18f);
+
+    // Cyan glass
+    setColor(0.08f,0.68f,0.88f);
+    cube(x,y+0.05f,z-0.11f,2.55f,3.25f,0.035f);
+
+    // Vertical divider
+    setColor(0.92f,0.90f,0.84f);
+    cube(x,y+0.05f,z-0.14f,0.10f,3.30f,0.05f);
+
+    // Horizontal divider
+    cube(x,y+0.05f,z-0.14f,2.55f,0.10f,0.05f);
+
+    // Inner frame
+    setColor(0.36f,0.18f,0.06f);
+    cube(x-1.42f,y+0.05f,z-0.14f,0.12f,3.55f,0.08f);
+    cube(x+1.42f,y+0.05f,z-0.14f,0.12f,3.55f,0.08f);
+    cube(x,y+1.82f,z-0.14f,2.90f,0.12f,0.08f);
+    cube(x,y-1.72f,z-0.14f,2.90f,0.12f,0.08f);
+}
+
+
+
+void ceilingFan(float x,float y,float z)
+{
+    // Fan rod
+    setColor(0.08f,0.08f,0.08f);
+    cube(x,y+0.55f,z,0.06f,1.10f,0.06f);
+
+    // Motor
+    setColor(0.06f,0.06f,0.06f);
+    cylinder(x,y,z,0.18f,0.18f);
+
+    // Continuously rotating blades
+    glPushMatrix();
+    glTranslatef(x,y-0.02f,z);
+    glRotatef(fanAngle,0,1,0);
+
+    setColor(0.12f,0.12f,0.12f);
+
+    for(int i=0;i<4;i++)
+    {
+        glPushMatrix();
+        glRotatef(i*90.0f,0,1,0);
+        glTranslatef(1.00f,0,0);
+
+        // Long, slightly tapered blade
+        glPushMatrix();
+        glScalef(1.65f,0.075f,0.25f);
+        glutSolidCube(1.0f);
+        glPopMatrix();
+
+        glPopMatrix();
+    }
+
+    // Center cap
+    sphere(0,0,0,0.22f);
+
+    glPopMatrix();
+}
+
+
+void tableTop(float x,float y,float z,float w,float d,float h)
+{
+    beginGlossyWood();
+
+    // Rounded/octagonal tabletop made from an extruded 8-sided polygon.
+    float hw = w/2.0f;
+    float hd = d/2.0f;
+    float cut = 0.28f;
+
+    float vx[8] =
+    {
+        -hw+cut, hw-cut, hw, hw,
+         hw-cut,-hw+cut,-hw,-hw
+    };
+
+    float vz[8] =
+    {
+        -hd,-hd,-hd+cut,hd-cut,
+         hd,hd,hd-cut,-hd+cut
+    };
+
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D,texWood);
+    glColor3f(1,1,1);
+
+    glBegin(GL_QUADS);
+    for(int i=0;i<8;i++)
+    {
+        int j=(i+1)%8;
+
+        glTexCoord2f(0,0); glVertex3f(x+vx[i],y+h/2,z+vz[i]);
+        glTexCoord2f(1,0); glVertex3f(x+vx[j],y+h/2,z+vz[j]);
+        glTexCoord2f(1,1); glVertex3f(x+vx[j],y-h/2,z+vz[j]);
+        glTexCoord2f(0,1); glVertex3f(x+vx[i],y-h/2,z+vz[i]);
+    }
+    glEnd();
+
+    glBegin(GL_POLYGON);
+    for(int i=0;i<8;i++) {
+        glTexCoord2f((vx[i]+hw)/(2*hw), (vz[i]+hd)/(2*hd));
+        glVertex3f(x+vx[i],y+h/2+0.015f,z+vz[i]);
+    }
+    glEnd();
+
+    glBegin(GL_POLYGON);
+    for(int i=7;i>=0;i--) {
+        glTexCoord2f((vx[i]+hw)/(2*hw), (vz[i]+hd)/(2*hd));
+        glVertex3f(x+vx[i],y-h/2-0.015f,z+vz[i]);
+    }
+    glEnd();
+    glBindTexture(GL_TEXTURE_2D,0);
+    glDisable(GL_TEXTURE_2D);
+    endGlossyWood();
 }
 
 void table(float x,float y,float z)
 {
-    setColor(0.65f,0.42f,0.18f);
-    cube(x,y,z,2.20f,0.16f,1.20f);
+    beginGlossyWood();
 
-    cube(x-0.90f,y-0.72f,z-0.45f,0.12f,1.45f,0.12f);
-    cube(x+0.90f,y-0.72f,z-0.45f,0.12f,1.45f,0.12f);
-    cube(x-0.90f,y-0.72f,z+0.45f,0.12f,1.45f,0.12f);
-    cube(x+0.90f,y-0.72f,z+0.45f,0.12f,1.45f,0.12f);
+    // Slightly larger rounded tabletop so seated people stay visually
+    // within the table area while reading.
+    tableTop(x,y,z,3.10f,1.75f,0.20f);
 
-    setColor(0.92f,0.90f,0.82f);
-    cube(x,y+0.15f,z,0.08f,0.28f,0.08f);
+    // Four sturdy slightly inset wooden legs.
+    setColor(0.42f,0.20f,0.065f);
+    texturedCube(x-1.05f,y-0.72f,z-0.58f,
+         0.16f,1.35f,0.16f,texWood,1.0f,3.0f);
 
-    setColor(0.95f,0.72f,0.20f);
-    sphere(x,y+0.32f,z,0.13f);
+    texturedCube(x+1.05f,y-0.72f,z-0.58f,
+         0.16f,1.35f,0.16f,texWood,1.0f,3.0f);
+
+    texturedCube(x-1.05f,y-0.72f,z+0.58f,
+         0.16f,1.35f,0.16f,texWood,1.0f,3.0f);
+
+    texturedCube(x+1.05f,y-0.72f,z+0.58f,
+         0.16f,1.35f,0.16f,texWood,1.0f,3.0f);
+
+    // Lower cross supports.
+    texturedCube(x,y-1.18f,z-0.55f,2.15f,0.12f,0.12f,texWood,3.0f,1.0f);
+    texturedCube(x,y-1.18f,z+0.55f,2.15f,0.12f,0.12f,texWood,3.0f,1.0f);
+    texturedCube(x-1.05f,y-1.18f,z,0.12f,0.12f,0.95f,texWood,1.0f,1.0f);
+    texturedCube(x+1.05f,y-1.18f,z,0.12f,0.12f,0.95f,texWood,1.0f,1.0f);
+    endGlossyWood();
 }
 
-void chair(float x,float y,float z)
+
+
+
+void chair(float x,float y,float z,float rot)
 {
-    setColor(0.45f,0.25f,0.10f);
+    glPushMatrix();
+    glTranslatef(x,y,z);
+    glRotatef(rot,0,1,0);
 
-    cube(x,y,z,0.70f,0.13f,0.65f);
+    // Wooden frame
+    setColor(0.30f,0.13f,0.045f);
 
-    cube(x-0.25f,y-0.45f,z-0.22f,
-         0.09f,0.90f,0.09f);
+    // Seat frame
+    cube(0,0,0,0.72f,0.14f,0.68f);
 
-    cube(x+0.25f,y-0.45f,z-0.22f,
-         0.09f,0.90f,0.09f);
+    // Four wooden legs
+    cube(-0.25f,-0.48f,-0.23f,0.11f,0.96f,0.11f);
+    cube( 0.25f,-0.48f,-0.23f,0.11f,0.96f,0.11f);
+    cube(-0.25f,-0.48f, 0.23f,0.11f,0.96f,0.11f);
+    cube( 0.25f,-0.48f, 0.23f,0.11f,0.96f,0.11f);
 
-    cube(x-0.25f,y-0.45f,z+0.22f,
-         0.09f,0.90f,0.09f);
+    // Blue seat cushion
+    setColor(0.08f,0.16f,0.30f);
+    cube(0,0.09f,0,0.62f,0.12f,0.58f);
 
-    cube(x+0.25f,y-0.45f,z+0.22f,
-         0.09f,0.90f,0.09f);
+    // Wooden back posts
+    setColor(0.30f,0.13f,0.045f);
+    cube(-0.29f,0.35f,0.25f,0.11f,0.95f,0.11f);
+    cube( 0.29f,0.35f,0.25f,0.11f,0.95f,0.11f);
 
-    cube(x,y+0.42f,z+0.27f,
-         0.70f,0.80f,0.10f);
+    // Blue back cushion
+    setColor(0.08f,0.16f,0.30f);
+    cube(0,0.43f,0.27f,0.62f,0.72f,0.13f);
+
+    // Wooden arms
+    setColor(0.30f,0.13f,0.045f);
+    cube(-0.39f,0.22f,0,0.10f,0.10f,0.62f);
+    cube( 0.39f,0.22f,0,0.10f,0.10f,0.62f);
+    cube(-0.39f,0.43f,0,0.11f,0.11f,0.70f);
+    cube( 0.39f,0.43f,0,0.11f,0.11f,0.70f);
+
+    glPopMatrix();
 }
+
 
 void computerDesk(float x,float y,float z)
 {
-    setColor(0.40f,0.23f,0.10f);
+    setColor(0.35f,0.16f,0.055f);
+
     cube(x,y,z,2.0f,0.15f,0.85f);
 
     cube(x-0.80f,y-0.65f,z,
@@ -243,98 +638,170 @@ void computerDesk(float x,float y,float z)
     cube(x+0.80f,y-0.65f,z,
          0.12f,1.30f,0.12f);
 
-    setColor(0.05f,0.05f,0.06f);
-    cube(x,y+0.40f,z,
-         0.90f,0.60f,0.08f);
+    setColor(0.04f,0.04f,0.05f);
+    cube(x,y+0.40f,z,0.90f,0.60f,0.08f);
 
-    setColor(0.08f,0.40f,0.80f);
+    setColor(0.08f,0.42f,0.85f);
     cube(x,y+0.40f,z-0.045f,
          0.70f,0.40f,0.025f);
 
     setColor(0.08f,0.08f,0.08f);
-    cube(x,y-0.02f,z,
-         0.10f,0.35f,0.10f);
-
-    cube(x,y-0.22f,z,
-         0.48f,0.07f,0.30f);
-}
-
-void railing(float x,float y,float z,
-             float length,float angle)
-{
-    glPushMatrix();
-
-    glTranslatef(x,y,z);
-    glRotatef(angle,0,1,0);
-
-    setColor(0.55f,0.30f,0.10f);
-
-    cube(0,0,0,length,0.10f,0.10f);
-
-    for(float i=-length/2;
-        i<=length/2;
-        i+=0.35f)
-    {
-        cube(i,-0.40f,0,
-             0.07f,0.80f,0.07f);
-    }
-
-    glPopMatrix();
-}
-
-void staircase()
-{
-    for(int i=0;i<13;i++)
-    {
-        float x=-6.0f+i*0.40f;
-        float y=0.15f+i*0.25f;
-
-        setColor(0.58f,0.35f,0.15f);
-
-        cube(x,y,1.0f,
-             0.75f,
-             0.20f,
-             1.70f);
-    }
-
-    railing(-3.6f,3.30f,0.25f,5.2f,0);
-    railing(-3.6f,3.30f,1.75f,5.2f,0);
-}
-
-void upperFloor()
-{
-    setColor(0.32f,0.18f,0.09f);
-
-    cube(1.0f,3.35f,0,
-         8.0f,0.22f,4.0f);
-
-    setColor(0.55f,0.30f,0.12f);
-
-    cube(1.0f,3.75f,-2.0f,
-         8.0f,0.10f,0.10f);
-
-    cube(1.0f,3.75f,2.0f,
-         8.0f,0.10f,0.10f);
-
-    for(float x=-2.8f;
-        x<=4.8f;
-        x+=0.45f)
-    {
-        cube(x,3.45f,-2.0f,
-             0.07f,0.70f,0.07f);
-
-        cube(x,3.45f,2.0f,
-             0.07f,0.70f,0.07f);
-    }
+    cube(x,y-0.02f,z,0.10f,0.35f,0.10f);
+    cube(x,y-0.22f,z,0.48f,0.07f,0.30f);
 }
 
 void ceilingLight(float x,float y,float z)
 {
-    setColor(0.15f,0.15f,0.15f);
-    cylinder(x,y,z,0.15f,0.08f);
+    setColor(0.08f,0.08f,0.08f);
 
-    setColor(1.0f,0.80f,0.20f);
-    sphere(x,y-0.15f,z,0.20f);
+    cylinder(x,y,z,0.045f,1.0f);
+
+    setColor(0.10f,0.10f,0.10f);
+
+    cylinder(x,y-1.0f,z,0.20f,0.15f);
+
+    setColor(1.0f,0.90f,0.65f);
+
+    sphere(x,y-1.16f,z,0.14f);
+}
+
+void sideLamp(float x,float z)
+{
+    setColor(0.10f,0.10f,0.10f);
+
+    cylinder(x,6.8f,z,0.035f,0.55f);
+
+    setColor(1.0f,0.88f,0.45f);
+
+    sphere(x,6.20f,z,0.16f);
+}
+
+
+void centralCeilingLight()
+{
+    // Single large square light in the center of the ceiling.
+    setColor(0.10f,0.10f,0.10f);
+    cube(0,7.72f,0,0.12f,0.18f,0.12f);
+
+    setColor(0.96f,0.96f,0.88f);
+    cube(0,7.58f,0,3.80f,0.18f,2.40f);
+
+    // Slightly smaller bright panel underneath.
+    setColor(1.0f,0.98f,0.88f);
+    cube(0,7.46f,0,3.40f,0.06f,2.00f);
+}
+
+
+
+void sideWallBookshelf(float x,float y,float z,float rotY)
+{
+    glPushMatrix();
+    glTranslatef(x,y,z);
+    glRotatef(rotY,0,1,0);
+
+    // Original bookshelf front faces +Z.
+    // Rotation makes the shelf face toward the room on each side wall.
+    bookshelf(0.0f,0.0f,0.0f,
+              15.6f,5.9f,1.15f);
+
+    glPopMatrix();
+}
+
+
+
+void seatedPerson(float x,float y,float z,float rot)
+{
+    glPushMatrix();
+    glTranslatef(x,y,z);
+    glRotatef(rot,0,1,0);
+    glScalef(0.82f,1.0f,0.82f);
+
+    // Legs tucked under the table in a seated pose.
+    setColor(0.07f,0.07f,0.09f);
+    cube(-0.16f,0.25f,-0.18f,0.14f,0.52f,0.14f);
+    cube( 0.16f,0.25f,-0.18f,0.14f,0.52f,0.14f);
+
+    // Shoes
+    setColor(0.025f,0.025f,0.025f);
+    cube(-0.16f,0.02f,-0.30f,0.22f,0.11f,0.34f);
+    cube( 0.16f,0.02f,-0.30f,0.22f,0.11f,0.34f);
+
+    // Torso
+    setColor(0.08f,0.27f,0.48f);
+    cube(0,0.88f,0,0.62f,0.92f,0.40f);
+
+    // Shoulders
+    sphere(-0.34f,1.20f,0,0.16f);
+    sphere( 0.34f,1.20f,0,0.16f);
+
+    // Neck
+    setColor(0.72f,0.48f,0.32f);
+    cylinder(0,1.37f,0,0.11f,0.18f);
+
+    // Head
+    sphere(0,1.67f,0,0.31f);
+
+    // Hair cap
+    setColor(0.035f,0.022f,0.012f);
+    sphere(0,1.82f,0,0.285f);
+
+    // Ears
+    setColor(0.68f,0.43f,0.29f);
+    sphere(-0.30f,1.67f,0,0.07f);
+    sphere( 0.30f,1.67f,0,0.07f);
+
+    // Face front is -Z.
+    setColor(0.76f,0.51f,0.34f);
+    sphere(0,1.68f,-0.285f,0.055f);
+
+    // Eyes
+    setColor(0.015f,0.015f,0.015f);
+    sphere(-0.105f,1.75f,-0.275f,0.045f);
+    sphere( 0.105f,1.75f,-0.275f,0.045f);
+
+    // Eyebrows
+    setColor(0.045f,0.025f,0.015f);
+    cube(-0.105f,1.84f,-0.275f,0.12f,0.025f,0.025f);
+    cube( 0.105f,1.84f,-0.275f,0.12f,0.025f,0.025f);
+
+    // Mouth
+    setColor(0.38f,0.08f,0.08f);
+    cube(0,1.57f,-0.29f,0.13f,0.025f,0.025f);
+
+    // Arms bend down and forward toward the book.
+    setColor(0.08f,0.22f,0.38f);
+
+    // Left upper arm and forearm.
+    cube(-0.27f,1.02f,-0.08f,0.14f,0.36f,0.14f);
+    cube(-0.19f,0.86f,-0.27f,0.14f,0.16f,0.40f);
+
+    // Right upper arm and forearm.
+    cube(0.27f,1.02f,-0.08f,0.14f,0.36f,0.14f);
+    cube(0.19f,0.86f,-0.27f,0.14f,0.16f,0.40f);
+
+    // Hands rest on the tabletop beside the book.
+    setColor(0.72f,0.48f,0.32f);
+    sphere(-0.19f,0.79f,-0.48f,0.085f);
+    sphere( 0.19f,0.79f,-0.48f,0.085f);
+
+    // Open book lies flat ON TOP of the table.
+    setColor(0.94f,0.91f,0.78f);
+    cube(-0.19f,0.775f,-0.43f,0.36f,0.035f,0.46f);
+    cube( 0.19f,0.775f,-0.43f,0.36f,0.035f,0.46f);
+
+    // Book center seam
+    setColor(0.55f,0.50f,0.40f);
+    cube(0,0.797f,-0.43f,0.025f,0.012f,0.47f);
+
+    // Visible page lines
+    setColor(0.35f,0.35f,0.32f);
+    for(int i=0;i<3;i++)
+    {
+        cube(-0.19f,0.800f,-0.56f+i*0.11f,0.24f,0.008f,0.008f);
+        cube( 0.19f,0.800f,-0.56f+i*0.11f,0.24f,0.008f,0.008f);
+    }
+
+    glPopMatrix();
 }
 
 void scene()
@@ -342,74 +809,96 @@ void scene()
     floor();
     walls();
 
-    windowObject(-8.8f,4.5f,-2.0f);
-    windowObject(-8.8f,4.5f,2.0f);
+    // Centered double wooden entrance.
+    doubleWoodDoor(0.0f,0.0f,-7.78f);
 
-    picture(-8.75f,6.2f,-4.0f);
-    picture(-8.75f,6.2f,4.0f);
-    picture(-8.75f,4.3f,5.5f);
+    /*
+       BACK WALL
+       The door/window wall stays open in the center.
+    */
+    /*
+       THREE WALL BOOKSHELVES
+       Left + right walls are full.
+       Back wall has shelves on both sides of the door/windows.
+    */
+    sideWallBookshelf(-8.45f,-0.05f,0.0f,90.0f);
+    sideWallBookshelf(8.45f,-0.05f,0.0f,-90.0f);
 
-    bookshelf(-5.8f,2.0f,-6.8f,
-              4.8f,4.0f,0.75f);
+    bookshelf(-5.65f,-0.95f,-7.50f,4.2f,5.35f,0.48f);
+    bookshelf(5.65f,-0.05f,-7.50f,4.2f,5.9f,0.48f);
 
-    bookshelf(-0.5f,2.0f,-6.8f,
-              4.8f,4.0f,0.75f);
+    /*
+       TABLES + CHAIRS
+       Exactly 4 chairs per table.
+       Two chairs on each long side, matching the reference image.
+    */
 
-    bookshelf(4.8f,2.0f,-6.8f,
-              3.8f,4.0f,0.75f);
+    // Table 1
+    table(-3.2f,1.25f,-3.4f);
+    chair(-4.65f,0.58f,-3.85f,-90.0f);
+    chair(-4.65f,0.58f,-2.95f,-90.0f);
+    chair(-1.75f,0.58f,-3.85f,90.0f);
+    chair(-1.75f,0.58f,-2.95f,90.0f);
 
-    bookshelf(-7.0f,2.0f,4.8f,
-              3.2f,4.0f,0.75f);
+    // Table 2
+    table(3.2f,1.25f,-3.4f);
+    chair(1.75f,0.58f,-3.85f,-90.0f);
+    chair(1.75f,0.58f,-2.95f,-90.0f);
+    chair(4.65f,0.58f,-3.85f,90.0f);
+    chair(4.65f,0.58f,-2.95f,90.0f);
 
-    bookshelf(-3.3f,2.0f,4.8f,
-              3.2f,4.0f,0.75f);
+    // Table 3
+    table(-3.2f,1.25f,1.2f);
+    chair(-4.65f,0.58f,0.75f,-90.0f);
+    chair(-4.65f,0.58f,1.65f,-90.0f);
+    chair(-1.75f,0.58f,0.75f,90.0f);
+    chair(-1.75f,0.58f,1.65f,90.0f);
 
-    table(-2.0f,1.3f,-1.0f);
-    chair(-3.3f,0.60f,-1.0f);
-    chair(-0.7f,0.60f,-1.0f);
+    // Table 4
+    table(3.2f,1.25f,1.2f);
+    chair(1.75f,0.58f,0.75f,-90.0f);
+    chair(1.75f,0.58f,1.65f,-90.0f);
+    chair(4.65f,0.58f,0.75f,90.0f);
+    chair(4.65f,0.58f,1.65f,90.0f);
 
-    table(1.5f,1.3f,-1.0f);
-    chair(0.2f,0.60f,-1.0f);
-    chair(2.8f,0.60f,-1.0f);
+    // Table 5
+    table(0.0f,1.25f,5.2f);
+    chair(-1.45f,0.58f,4.75f,-90.0f);
+    chair(-1.45f,0.58f,5.65f,-90.0f);
+    chair(1.45f,0.58f,4.75f,90.0f);
+    chair(1.45f,0.58f,5.65f,90.0f);
 
-    table(-2.0f,1.3f,2.0f);
-    chair(-3.3f,0.60f,2.0f);
-    chair(-0.7f,0.60f,2.0f);
+    /*
+       Seated library visitors
+       Placed on selected chairs only.
+    */
+    seatedPerson(-4.65f,0.58f,-3.85f,-90.0f);
+    seatedPerson( 1.75f,0.58f,-3.85f,-90.0f);
+    seatedPerson(-4.65f,0.58f, 0.75f,-90.0f);
+    seatedPerson( 4.65f,0.58f, 1.65f, 90.0f);
+    seatedPerson( 1.75f,0.58f, 0.75f,-90.0f);
+    seatedPerson(-1.45f,0.58f, 4.75f,-90.0f);
 
-    table(1.5f,1.3f,2.0f);
-    chair(0.2f,0.60f,2.0f);
-    chair(2.8f,0.60f,2.0f);
+    // One large square ceiling light in the center.
+    centralCeilingLight();
 
-    computerDesk(6.3f,1.15f,-4.8f);
-    computerDesk(6.3f,1.15f,-3.5f);
-    computerDesk(6.3f,1.15f,-2.2f);
-
-    chair(5.3f,0.55f,-4.8f);
-    chair(5.3f,0.55f,-3.5f);
-    chair(5.3f,0.55f,-2.2f);
-
-    staircase();
-    upperFloor();
-
-    bookshelf(-0.8f,4.7f,-0.8f,
-              3.5f,2.8f,0.65f);
-
-    bookshelf(3.2f,4.7f,-0.8f,
-              3.5f,2.8f,0.65f);
-
-    ceilingLight(-4.0f,7.5f,-2.5f);
-    ceilingLight(2.0f,7.5f,-2.5f);
-    ceilingLight(6.0f,7.5f,3.0f);
+    // Four continuously rotating ceiling fans
+    ceilingFan(-4.8f,6.8f,-2.5f);
+    ceilingFan( 4.8f,6.8f,-2.5f);
+    ceilingFan(-4.8f,6.8f, 3.5f);
+    ceilingFan( 4.8f,6.8f, 3.5f);
 }
 
 void setupCamera()
 {
-    float yawr=yaw*3.14159265f/180.0f;
-    float pitchr=pitch*3.14159265f/180.0f;
+    float rad = 3.14159265f/180.0f;
 
-    float lookX=cos(pitchr)*sin(yawr);
-    float lookY=sin(pitchr);
-    float lookZ=cos(pitchr)*cos(yawr);
+    float yawr = yaw*rad;
+    float pitchr = pitch*rad;
+
+    float lookX = cos(pitchr)*sin(yawr);
+    float lookY = sin(pitchr);
+    float lookZ = cos(pitchr)*cos(yawr);
 
     gluLookAt(
         camX,
@@ -420,13 +909,18 @@ void setupCamera()
         camY+lookY,
         camZ+lookZ,
 
-        0,1,0
+        0.0f,
+        1.0f,
+        0.0f
     );
 }
 
 void display()
 {
-    glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+    glClear(
+        GL_COLOR_BUFFER_BIT |
+        GL_DEPTH_BUFFER_BIT
+    );
 
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
@@ -437,51 +931,104 @@ void display()
     glutSwapBuffers();
 }
 
+
+bool blocked(float x,float z)
+{
+    const float r = 0.38f;
+
+    // Keep player inside the library.
+    if(x < -7.55f || x > 7.55f || z < -7.15f || z > 7.15f)
+        return true;
+
+    // Table collision boxes.
+    const float tx[] = {-3.2f, 3.2f, -3.2f, 3.2f, 0.0f};
+    const float tz[] = {-3.4f,-3.4f, 1.2f, 1.2f, 5.2f};
+
+    for(int i=0;i<5;i++)
+    {
+        if(x > tx[i]-1.55f-r && x < tx[i]+1.55f+r &&
+           z > tz[i]-0.92f-r && z < tz[i]+0.92f+r)
+            return true;
+    }
+
+    return false;
+}
+
+void tryMove(float dx,float dz)
+{
+    float nx = camX + dx;
+    float nz = camZ + dz;
+
+    // Separate X/Z tests let the player slide around corners
+    // instead of getting stuck.
+    if(!blocked(nx,camZ))
+        camX = nx;
+
+    if(!blocked(camX,nz))
+        camZ = nz;
+}
+
 void update(int value)
 {
-    float yawr=yaw*3.14159265f/180.0f;
+    float targetDoorAngle = doubleDoorOpen ? 88.0f : 0.0f;
+    float doorSpeed = 4.0f;
+    if(doubleDoorAngle < targetDoorAngle)
+        doubleDoorAngle = fminf(doubleDoorAngle + doorSpeed, targetDoorAngle);
+    else if(doubleDoorAngle > targetDoorAngle)
+        doubleDoorAngle = fmaxf(doubleDoorAngle - doorSpeed, targetDoorAngle);
 
-    float forwardX=sin(yawr);
-    float forwardZ=cos(yawr);
+    // Continuous ceiling-fan rotation
+    fanAngle += 8.0f;
+    if(fanAngle >= 360.0f)
+        fanAngle -= 360.0f;
 
-    float rightX=-cos(yawr);
-    float rightZ=sin(yawr);
+    float rad = 3.14159265f/180.0f;
 
-    bool shiftPressed=
+    float yawr = yaw*rad;
+
+    float forwardX = sin(yawr);
+    float forwardZ = cos(yawr);
+
+    float rightX = -cos(yawr);
+    float rightZ = sin(yawr);
+
+    bool shiftPressed =
         (GetAsyncKeyState(VK_SHIFT)&0x8000);
 
-    moveSpeed=
+    float speed =
         shiftPressed ? 0.22f : 0.10f;
 
-    if(keys['w']||keys['W'])
+    if(keys['w'] || keys['W'])
     {
-        camX+=forwardX*moveSpeed;
-        camZ+=forwardZ*moveSpeed;
+        tryMove(forwardX*speed, forwardZ*speed);
     }
 
-    if(keys['s']||keys['S'])
+    if(keys['s'] || keys['S'])
     {
-        camX-=forwardX*moveSpeed;
-        camZ-=forwardZ*moveSpeed;
+        tryMove(-forwardX*speed, -forwardZ*speed);
     }
 
-    if(keys['a']||keys['A'])
+    if(keys['a'] || keys['A'])
     {
-        camX-=rightX*moveSpeed;
-        camZ-=rightZ*moveSpeed;
+        tryMove(-rightX*speed, -rightZ*speed);
     }
 
-    if(keys['d']||keys['D'])
+    if(keys['d'] || keys['D'])
     {
-        camX+=rightX*moveSpeed;
-        camZ+=rightZ*moveSpeed;
+        tryMove(rightX*speed, rightZ*speed);
     }
 
-    if(camX<-8.2f) camX=-8.2f;
-    if(camX>8.2f) camX=8.2f;
+    if(camX < -8.3f)
+        camX = -8.2f;
 
-    if(camZ<-7.2f) camZ=-7.2f;
-    if(camZ>7.2f) camZ=7.2f;
+    if(camX > 8.3f)
+        camX = 8.2f;
+
+    if(camZ < -7.3f)
+        camZ = -7.2f;
+
+    if(camZ > 7.3f)
+        camZ = 7.2f;
 
     glutPostRedisplay();
 
@@ -490,50 +1037,61 @@ void update(int value)
 
 void keyDown(unsigned char key,int x,int y)
 {
-    keys[key]=true;
+    if(key=='e' || key=='E') doubleDoorOpen = !doubleDoorOpen;
 
-    if(key==27)
+    keys[key] = true;
+
+    if(key == 27)
         exit(0);
-
-    if(key=='r'||key=='R')
+    if(key == 'r' || key == 'R')
     {
-        camX=0.0f;
-        camY=1.75f;
-        camZ=7.0f;
+        camX = 0.0f;
+        camY = 1.75f;
+        camZ = 7.0f;
 
-        yaw=180.0f;
-        pitch=0.0f;
+        yaw = 180.0f;
+        pitch = 0.0f;
+
+        warping = true;
+
+        glutWarpPointer(centerX,centerY);
     }
 }
 
 void keyUp(unsigned char key,int x,int y)
 {
-    keys[key]=false;
+    keys[key] = false;
 }
 
 void mouseMove(int x,int y)
 {
     if(warping)
     {
-        warping=false;
+        warping = false;
         return;
     }
 
-    int dx=x-centerX;
-    int dy=y-centerY;
+    int dx = x-centerX;
+    int dy = y-centerY;
 
-    float sensitivity=0.18f;
+    float sensitivity = 0.18f;
 
-    yaw+=dx*sensitivity;
-    pitch-=dy*sensitivity;
+    yaw -= dx*sensitivity;
+    pitch -= dy*sensitivity;
 
-    if(pitch>85.0f)
-        pitch=85.0f;
+    if(yaw > 360.0f)
+        yaw -= 360.0f;
 
-    if(pitch<-85.0f)
-        pitch=-85.0f;
+    if(yaw < 0.0f)
+        yaw += 360.0f;
 
-    warping=true;
+    if(pitch > 85.0f)
+        pitch = 85.0f;
+
+    if(pitch < -85.0f)
+        pitch = -85.0f;
+
+    warping = true;
 
     glutWarpPointer(centerX,centerY);
 
@@ -542,11 +1100,11 @@ void mouseMove(int x,int y)
 
 void reshape(int w,int h)
 {
-    if(h==0)
-        h=1;
+    if(h == 0)
+        h = 1;
 
-    centerX=w/2;
-    centerY=h/2;
+    centerX = w/2;
+    centerY = h/2;
 
     glViewport(0,0,w,h);
 
@@ -566,9 +1124,9 @@ void reshape(int w,int h)
 void init()
 {
     glClearColor(
-        0.55f,
-        0.65f,
-        0.75f,
+        0.72f,
+        0.72f,
+        0.72f,
         1.0f
     );
 
@@ -579,6 +1137,25 @@ void init()
 
     glShadeModel(GL_SMOOTH);
 
+    // Soft light for visible polished-wood highlights.
+    GLfloat lightPos[] = {0.0f,7.0f,1.5f,1.0f};
+    GLfloat lightDiffuse[] = {1.0f,0.96f,0.90f,1.0f};
+    GLfloat lightSpecular[] = {1.0f,1.0f,1.0f,1.0f};
+    glLightfv(GL_LIGHT0,GL_POSITION,lightPos);
+    glLightfv(GL_LIGHT0,GL_DIFFUSE,lightDiffuse);
+    glLightfv(GL_LIGHT0,GL_SPECULAR,lightSpecular);
+    GLfloat ambient[] = {0.20f,0.20f,0.20f,1.0f};
+    glLightModelfv(GL_LIGHT_MODEL_AMBIENT,ambient);
+
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+
+    makeProceduralTexture(texWood,0);
+    makeProceduralTexture(texTile,1);
+    makeProceduralTexture(texWall,2);
+
+    glDisable(GL_TEXTURE_2D);
+
     glutSetCursor(GLUT_CURSOR_NONE);
 }
 
@@ -587,8 +1164,8 @@ int main(int argc,char** argv)
     glutInit(&argc,argv);
 
     glutInitDisplayMode(
-        GLUT_DOUBLE|
-        GLUT_RGB|
+        GLUT_DOUBLE |
+        GLUT_RGB |
         GLUT_DEPTH
     );
 
@@ -597,7 +1174,7 @@ int main(int argc,char** argv)
     glutInitWindowPosition(80,40);
 
     glutCreateWindow(
-        "3D Library Environment - Graphics Lab"
+        "Grand 3D Library Environment - Graphics Lab"
     );
 
     init();
