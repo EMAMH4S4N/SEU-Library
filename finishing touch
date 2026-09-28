@@ -36,11 +36,6 @@ GLuint texTile = 0;
 GLuint texWall = 0;
 GLuint texDecorTile = 0; // decorative architectural wall tile (librarian's wall)
 
-// ============================================================
-// INTERACTIVE EXHIBIT (floating armillary orb) - user transform state
-// Translation / Rotation / Scaling are all controlled by keyboard
-// (and mouse wheel for scaling). See keyDown() / update().
-// ============================================================
 float exX = 0.0f, exY = 0.0f, exZ = 0.0f;        // translation offset
 float exRotX = 0.0f, exRotY = 0.0f, exRotZ = 0.0f; // manual rotation (deg)
 float exScale = 1.0f;                            // uniform scale
@@ -50,9 +45,6 @@ float moonAngle = 0.0f;                          // orbiting moons
 float skyTime = 0.0f;                            // animates clouds/birds outside
 bool  specialKeys[256] = {false};                // arrow keys, PgUp/PgDn
 
-// ============================================================
-// MATERIALS  (ambient + diffuse + specular + shininess + emission)
-// ============================================================
 struct Material
 {
     GLfloat amb[4];
@@ -68,7 +60,7 @@ Material matMoon  = {{0.25f,0.03f,0.03f,1.0f},{0.85f,0.15f,0.12f,1.0f},{1.00f,0.
 Material matPolishedWood = {{0.50f,0.50f,0.50f,1.0f},{0.90f,0.90f,0.90f,1.0f},{0.55f,0.55f,0.55f,1.0f},60.0f,{0.0f,0.0f,0.0f,1.0f}};
 Material matWall  = {{1.00f,1.00f,1.00f,1.0f},{1.00f,1.00f,1.00f,1.0f},{0.05f,0.05f,0.05f,1.0f},4.0f,{0.18f,0.18f,0.18f,1.0f}};
 
-// Explicit material: ambient, diffuse, specular, shininess, emission
+
 void useMaterial(const Material &m)
 {
     glDisable(GL_COLOR_MATERIAL);
@@ -79,8 +71,7 @@ void useMaterial(const Material &m)
     glMaterialf (GL_FRONT_AND_BACK, GL_SHININESS, m.shin);
 }
 
-// Default material for everything drawn with glColor()/setColor():
-// glColor drives ambient+diffuse, specular/shininess/emission set here.
+
 void resetDefaultMaterial()
 {
     GLfloat spec[] = {0.30f,0.30f,0.30f,1.0f};
@@ -420,12 +411,6 @@ void ceiling()
         22.0f,0.25f,20.0f
     );
 
-    // ------------------------------------------------------------
-    // Decorative rectangular ceiling panels (coffered grid).
-    // Purely a visual addition just beneath the existing ceiling
-    // slab above - the slab itself keeps its exact position,
-    // height and dimensions.
-    // ------------------------------------------------------------
     glPushAttrib(
         GL_ENABLE_BIT |
         GL_CURRENT_BIT |
@@ -446,7 +431,6 @@ void ceiling()
     const float beamY  = 7.70f; // grid beams, hang lower (more visible)
     const float panelY = 7.76f; // recessed panel faces, closer to the slab
 
-    // Grid beams running along X (row dividers)
     setColor(0.30f,0.21f,0.12f);
 
     for(int r=0; r<=panelRows; r++)
@@ -459,7 +443,6 @@ void ceiling()
         );
     }
 
-    // Grid beams running along Z (column dividers)
     for(int c=0; c<=panelCols; c++)
     {
         float x = -gridW/2.0f + c*cellW;
@@ -470,8 +453,6 @@ void ceiling()
         );
     }
 
-    // Recessed panel faces, one per cell, giving the grid a subtle
-    // shaded/organized look.
     for(int r=0; r<panelRows; r++)
     {
         for(int c=0; c<panelCols; c++)
