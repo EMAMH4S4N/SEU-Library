@@ -1,0 +1,4785 @@
+#include <GL/glut.h>
+#include <cmath>
+#include <cstdlib>
+#include <windows.h>
+
+float camX = 0.0f;
+float camY = 1.75f;
+float camZ = 7.0f;
+
+float yaw = 180.0f;
+float pitch = 0.0f;
+
+bool keys[256] = {false};
+
+int centerX = 600;
+int centerY = 400;
+bool warping = false;
+
+float moveSpeed = 0.10f;
+
+float fanAngle = 0.0f;
+float fanSpeed = 8.0f;
+bool lightsOn = true;
+float roomBrightness = 1.0f;
+
+bool magicBookOpen = false;
+bool magicBookActive[2] = {false, false};
+float magicBookGlow = 0.0f;
+float magicBookPulse = 0.0f;
+float magicBookLift[2] = {0.0f, 0.0f};
+
+bool computerOn[4] = {false, false, false, false};
+
+GLuint texWood = 0;
+GLuint texTile = 0;
+GLuint texWall = 0;
+
+void beginGlossyWood()
+{
+    glEnable(GL_LIGHTING);
+    glEnable(GL_LIGHT0);
+    glEnable(GL_COLOR_MATERIAL);
+    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+
+    GLfloat specular[] = {0.85f,0.85f,0.85f,1.0f};
+    GLfloat shininess[] = {80.0f};
+
+    glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, specular);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_SHININESS, shininess);
+}
+
+void endGlossyWood()
+{
+    glDisable(GL_LIGHTING);
+}
+
+float doubleDoorAngle = 0.0f;
+bool doubleDoorOpen = false;
+
+void makeProceduralTexture(GLuint &tex, int type)
+{
+    const int W = 256, H = 256;
+    unsigned char *data = new unsigned char[W * H * 3];
+
+    for(int y=0; y<H; ++y)
+    {
+        for(int x=0; x<W; ++x)
+        {
+            float fx = (float)x / (float)W;
+            float fy = (float)y / (float)H;
+
+            float r=0.8f, g=0.8f, b=0.8f;
+
+            if(type == 0)
+            {
+                float grain = 0.5f + 0.5f*sinf(fx*34.0f + sinf(fy*12.0f)*0.8f);
+                float fine  = 0.5f + 0.5f*sinf(fx*190.0f + fy*9.0f);
+
+                r = 0.24f + 0.34f*grain + 0.035f*fine;
+                g = 0.07f + 0.15f*grain + 0.018f*fine;
+                b = 0.018f + 0.060f*grain;
+            }
+            else if(type == 1)
+            {
+                int tx = x / 32;
+                int ty = y / 32;
+
+                bool edge = (x % 32 < 3) || (y % 32 < 3);
+
+                float shade = ((tx+ty)%2) ? 0.78f : 0.88f;
+
+                if(edge)
+                    shade = 0.55f;
+
+                r = g = b = shade;
+            }
+            else
+            {
+                float noise = 0.96f + 0.04f*sinf(fx*55.0f)*sinf(fy*43.0f);
+
+                r = 0.78f*noise;
+                g = 0.75f*noise;
+                b = 0.70f*noise;
+            }
+
+            int i = (y*W+x)*3;
+
+            data[i+0] = (unsigned char)(255.0f*fminf(fmaxf(r,0.0f),1.0f));
+            data[i+1] = (unsigned char)(255.0f*fminf(fmaxf(g,0.0f),1.0f));
+            data[i+2] = (unsigned char)(255.0f*fminf(fmaxf(b,0.0f),1.0f));
+        }
+    }
+
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    gluBuild2DMipmaps(
+        GL_TEXTURE_2D,
+        GL_RGB,
+        W,
+        H,
+        GL_RGB,
+        GL_UNSIGNED_BYTE,
+        data
+    );
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    delete [] data;
+}
+
+void texturedCube(
+    float x,float y,float z,
+    float sx,float sy,float sz,
+    GLuint tex,
+    float repeatX=1.0f,
+    float repeatY=1.0f
+)
+{
+    glPushMatrix();
+
+    glTranslatef(x,y,z);
+    glScalef(sx,sy,sz);
+
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, tex);
+
+    glColor3f(1.0f,1.0f,1.0f);
+
+    glBegin(GL_QUADS);
+
+    glNormal3f(0,0,1);
+
+    glTexCoord2f(0,0);
+    glVertex3f(-0.5f,-0.5f,0.5f);
+
+    glTexCoord2f(repeatX,0);
+    glVertex3f(0.5f,-0.5f,0.5f);
+
+    glTexCoord2f(repeatX,repeatY);
+    glVertex3f(0.5f,0.5f,0.5f);
+
+    glTexCoord2f(0,repeatY);
+    glVertex3f(-0.5f,0.5f,0.5f);
+
+
+    glNormal3f(0,0,-1);
+
+    glTexCoord2f(0,0);
+    glVertex3f(0.5f,-0.5f,-0.5f);
+
+    glTexCoord2f(repeatX,0);
+    glVertex3f(-0.5f,-0.5f,-0.5f);
+
+    glTexCoord2f(repeatX,repeatY);
+    glVertex3f(-0.5f,0.5f,-0.5f);
+
+    glTexCoord2f(0,repeatY);
+    glVertex3f(0.5f,0.5f,-0.5f);
+
+
+    glNormal3f(-1,0,0);
+
+    glTexCoord2f(0,0);
+    glVertex3f(-0.5f,-0.5f,-0.5f);
+
+    glTexCoord2f(repeatX,0);
+    glVertex3f(-0.5f,-0.5f,0.5f);
+
+    glTexCoord2f(repeatX,repeatY);
+    glVertex3f(-0.5f,0.5f,0.5f);
+
+    glTexCoord2f(0,repeatY);
+    glVertex3f(-0.5f,0.5f,-0.5f);
+
+
+    glNormal3f(1,0,0);
+
+    glTexCoord2f(0,0);
+    glVertex3f(0.5f,-0.5f,0.5f);
+
+    glTexCoord2f(repeatX,0);
+    glVertex3f(0.5f,-0.5f,-0.5f);
+
+    glTexCoord2f(repeatX,repeatY);
+    glVertex3f(0.5f,0.5f,-0.5f);
+
+    glTexCoord2f(0,repeatY);
+    glVertex3f(0.5f,0.5f,0.5f);
+
+
+    glNormal3f(0,1,0);
+
+    glTexCoord2f(0,0);
+    glVertex3f(-0.5f,0.5f,0.5f);
+
+    glTexCoord2f(repeatX,0);
+    glVertex3f(0.5f,0.5f,0.5f);
+
+    glTexCoord2f(repeatX,repeatY);
+    glVertex3f(0.5f,0.5f,-0.5f);
+
+    glTexCoord2f(0,repeatY);
+    glVertex3f(-0.5f,0.5f,-0.5f);
+
+
+    glNormal3f(0,-1,0);
+
+    glTexCoord2f(0,0);
+    glVertex3f(-0.5f,-0.5f,-0.5f);
+
+    glTexCoord2f(repeatX,0);
+    glVertex3f(0.5f,-0.5f,-0.5f);
+
+    glTexCoord2f(repeatX,repeatY);
+    glVertex3f(0.5f,-0.5f,0.5f);
+
+    glTexCoord2f(0,repeatY);
+    glVertex3f(-0.5f,-0.5f,0.5f);
+
+    glEnd();
+
+    glBindTexture(GL_TEXTURE_2D,0);
+    glDisable(GL_TEXTURE_2D);
+
+    glPopMatrix();
+}
+
+void setColor(float r,float g,float b)
+{
+    glColor3f(r,g,b);
+}
+
+void setSkyBlueWallColor()
+{
+    glDisable(GL_TEXTURE_2D);
+    glColor3f(0.52f,0.72f,0.88f);
+}
+
+void cube(float x,float y,float z,float sx,float sy,float sz)
+{
+    glPushMatrix();
+
+    glTranslatef(x,y,z);
+    glScalef(sx,sy,sz);
+
+    glutSolidCube(1.0f);
+
+    glPopMatrix();
+}
+
+void sphere(float x,float y,float z,float r)
+{
+    glPushMatrix();
+
+    glTranslatef(x,y,z);
+
+    glutSolidSphere(r,20,20);
+
+    glPopMatrix();
+}
+
+void cylinder(float x,float y,float z,float r,float h)
+{
+    GLUquadric* q = gluNewQuadric();
+
+    glPushMatrix();
+
+    glTranslatef(x,y,z);
+    glRotatef(-90,1,0,0);
+
+    gluCylinder(q,r,r,h,24,2);
+
+    gluDisk(q,0,r,24,1);
+
+    glTranslatef(0,0,h);
+
+    gluDisk(q,0,r,24,1);
+
+    glPopMatrix();
+
+    gluDeleteQuadric(q);
+}
+
+void floor()
+{
+    texturedCube(
+        0,-0.15f,0,
+        22.0f,0.30f,20.0f,
+        texTile,
+        18.0f,16.0f
+    );
+}
+
+void ceiling()
+{
+    setColor(0.97f,0.97f,0.97f);
+
+    cube(
+        0,7.9f,0,
+        22.0f,0.25f,20.0f
+    );
+}
+
+void walls()
+{
+    glPushAttrib(
+        GL_ENABLE_BIT |
+        GL_CURRENT_BIT |
+        GL_LIGHTING_BIT
+    );
+
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_BLEND);
+
+    const float WR = 0.35f;
+    const float WG = 0.68f;
+    const float WB = 0.95f;
+
+    // Back wall
+    glColor3f(WR,WG,WB);
+
+    cube(
+        0.0f,4.0f,-10.0f,
+        22.0f,8.0f,0.25f
+    );
+
+    // Left wall
+    glColor3f(WR,WG,WB);
+
+    cube(
+        -11.0f,4.0f,0.0f,
+        0.25f,8.0f,20.0f
+    );
+
+    // Right wall
+    glColor3f(WR,WG,WB);
+
+    cube(
+        11.0f,4.0f,0.0f,
+        0.25f,8.0f,20.0f
+    );
+
+    // Front wall
+    glColor3f(WR,WG,WB);
+
+    cube(
+        0.0f,4.0f,10.0f,
+        22.0f,8.0f,0.25f
+    );
+
+    glPopAttrib();
+
+    ceiling();
+}
+
+void doubleWoodDoor(float x,float y,float z)
+{
+    glPushMatrix();
+
+    glTranslatef(x,y,z);
+
+    texturedCube(
+        -2.05f,2.75f,0,
+        0.34f,5.65f,0.34f,
+        texWood,
+        1.0f,4.0f
+    );
+
+    texturedCube(
+        2.05f,2.75f,0,
+        0.34f,5.65f,0.34f,
+        texWood,
+        1.0f,4.0f
+    );
+
+    texturedCube(
+        0,5.42f,0,
+        4.35f,0.34f,0.34f,
+        texWood,
+        3.0f,1.0f
+    );
+
+    setColor(0.0f,0.0f,0.0f);
+
+    cube(
+        0,2.72f,0.08f,
+        3.72f,5.30f,0.08f
+    );
+
+    // Left door leaf
+    glPushMatrix();
+
+    glTranslatef(-1.84f,2.72f,0.08f);
+
+    glRotatef(-doubleDoorAngle,0,1,0);
+
+    glTranslatef(0.88f,0,0);
+
+    setColor(0.30f,0.12f,0.035f);
+
+    cube(
+        0,0,0,
+        1.76f,5.25f,0.18f
+    );
+
+    setColor(0.78f,0.60f,0.25f);
+
+    sphere(
+        0.66f,0,-0.15f,
+        0.075f
+    );
+
+    glPopMatrix();
+
+    // Right door leaf
+    glPushMatrix();
+
+    glTranslatef(1.84f,2.72f,0.08f);
+
+    glRotatef(doubleDoorAngle,0,1,0);
+
+    glTranslatef(-0.88f,0,0);
+
+    setColor(0.30f,0.12f,0.035f);
+
+    cube(
+        0,0,0,
+        1.76f,5.25f,0.18f
+    );
+
+    setColor(0.78f,0.60f,0.25f);
+
+    sphere(
+        -0.66f,0,-0.15f,
+        0.075f
+    );
+
+    glPopMatrix();
+
+    glPopMatrix();
+}
+
+void book(
+    float x,float y,float z,
+    float w,float h,float d,
+    int c
+)
+{
+    float colors[12][3] =
+    {
+        {0.75f,0.05f,0.04f},
+        {0.04f,0.20f,0.72f},
+        {0.04f,0.50f,0.14f},
+        {0.92f,0.68f,0.05f},
+        {0.55f,0.08f,0.58f},
+        {0.90f,0.28f,0.03f},
+        {0.04f,0.55f,0.64f},
+        {0.58f,0.30f,0.08f},
+        {0.18f,0.18f,0.62f},
+        {0.68f,0.04f,0.28f},
+        {0.25f,0.58f,0.22f},
+        {0.52f,0.50f,0.08f}
+    };
+
+    setColor(
+        colors[c%12][0],
+        colors[c%12][1],
+        colors[c%12][2]
+    );
+
+    cube(
+        x,y,z,
+        w,h,d
+    );
+}
+
+
+// ============================================================
+// MODIFIED BOOKSHELF
+// Books are now tightly packed and fill every shelf.
+// ============================================================
+
+void bookshelf(
+    float x,float y,float z,
+    float w,float h,float d
+)
+{
+    float backZ  = z - d/2.0f + 0.04f;
+    float frontZ = z + d/2.0f;
+
+    // Wooden back panel
+    texturedCube(
+        x,
+        y+h/2,
+        backZ,
+        w,
+        h,
+        0.18f,
+        texWood,
+        3.0f,
+        3.0f
+    );
+
+    // Left wooden side panel
+    texturedCube(
+        x-w/2+0.10f,
+        y+h/2,
+        frontZ,
+        0.20f,
+        h+0.12f,
+        d+0.10f,
+        texWood,
+        1.0f,
+        3.0f
+    );
+
+    // Right wooden side panel
+    texturedCube(
+        x+w/2-0.10f,
+        y+h/2,
+        frontZ,
+        0.20f,
+        h+0.12f,
+        d+0.10f,
+        texWood,
+        1.0f,
+        3.0f
+    );
+
+    // Top wooden frame
+    texturedCube(
+        x,
+        y+h-0.08f,
+        frontZ,
+        w+0.12f,
+        0.18f,
+        d+0.10f,
+        texWood,
+        4.0f,
+        1.0f
+    );
+
+    // Bottom wooden frame
+    texturedCube(
+        x,
+        y+0.08f,
+        frontZ,
+        w+0.12f,
+        0.18f,
+        d+0.10f,
+        texWood,
+        4.0f,
+        1.0f
+    );
+
+    // Six shelves
+    const int rows = 6;
+
+    float usableH = h - 0.42f;
+    float rowH = usableH / rows;
+
+    for(int r=0; r<rows; r++)
+    {
+        float shelfY =
+            y + 0.30f + r*rowH;
+
+        // Shelf board
+        texturedCube(
+            x,
+            shelfY,
+            frontZ,
+            w-0.16f,
+            0.13f,
+            d+0.02f,
+            texWood,
+            4.0f,
+            1.0f
+        );
+
+        // ----------------------------------------------------
+        // BOOKS
+        // ----------------------------------------------------
+
+        float leftLimit =
+            x - w/2.0f + 0.17f;
+
+        float rightLimit =
+            x + w/2.0f - 0.17f;
+
+        float px = leftLimit;
+
+        float bookBase =
+            shelfY + 0.07f;
+
+        int bookIndex = 0;
+
+        // Books are packed very tightly.
+        while(px < rightLimit - 0.005f)
+        {
+            // Different book widths.
+            float bw;
+
+            switch((bookIndex + r) % 6)
+            {
+                case 0:
+                    bw = 0.105f;
+                    break;
+
+                case 1:
+                    bw = 0.125f;
+                    break;
+
+                case 2:
+                    bw = 0.145f;
+                    break;
+
+                case 3:
+                    bw = 0.115f;
+                    break;
+
+                case 4:
+                    bw = 0.135f;
+                    break;
+
+                default:
+                    bw = 0.155f;
+                    break;
+            }
+
+            // Slightly different book heights.
+            float variation =
+                ((bookIndex*5 + r*3) % 7 - 3) * 0.025f;
+
+            float bh =
+                rowH * 0.80f + variation;
+
+            // Keep every book safely inside the shelf.
+            float maxBookHeight =
+                rowH - 0.16f;
+
+            if(bh > maxBookHeight)
+                bh = maxBookHeight;
+
+            if(bh < rowH*0.70f)
+                bh = rowH*0.70f;
+
+            // Prevent final book from going outside shelf.
+            if(px + bw > rightLimit)
+                bw = rightLimit - px;
+
+            if(bw < 0.025f)
+                break;
+
+            // Many different colors.
+            int colorIndex =
+                (bookIndex*7 + r*4) % 12;
+
+            // Books stay upright and close together.
+            book(
+                px + bw/2.0f,
+                bookBase + bh/2.0f,
+                frontZ + 0.09f,
+                bw,
+                bh,
+                d*0.60f,
+                colorIndex
+            );
+
+            // Very small gap between books.
+            px += bw + 0.004f;
+
+            bookIndex++;
+
+            // Safety limit.
+            if(bookIndex >= 180)
+                break;
+        }
+    }
+
+    // Thick bottom wooden plinth
+    texturedCube(
+        x,
+        y-0.02f,
+        frontZ,
+        w+0.16f,
+        0.28f,
+        d+0.12f,
+        texWood,
+        4.0f,
+        1.0f
+    );
+}
+
+
+void column(float x,float z)
+{
+    setColor(0.33f,0.16f,0.055f);
+
+    cube(
+        x,0.70f,z,
+        0.65f,1.40f,0.65f
+    );
+
+    setColor(0.88f,0.86f,0.80f);
+
+    cylinder(
+        x,1.0f,z,
+        0.25f,4.8f
+    );
+
+    setColor(0.35f,0.17f,0.06f);
+
+    cube(
+        x,5.82f,z,
+        0.78f,0.30f,0.78f
+    );
+
+    cube(
+        x,6.15f,z,
+        0.65f,0.20f,0.65f
+    );
+}
+
+void arch(float x,float z,float width)
+{
+    setColor(0.34f,0.16f,0.055f);
+
+    cube(
+        x-width/2,4.15f,z,
+        0.32f,3.8f,0.45f
+    );
+
+    cube(
+        x+width/2,4.15f,z,
+        0.32f,3.8f,0.45f
+    );
+
+    cube(
+        x,6.0f,z,
+        width+0.32f,0.35f,0.45f
+    );
+
+    for(float a=0;a<=180;a+=15)
+    {
+        float rad =
+            a*3.14159265f/180.0f;
+
+        float px =
+            x+(width/2)*cos(rad);
+
+        float py =
+            6.0f+(width/2)*sin(rad);
+
+        cube(
+            px,py,z,
+            0.28f,0.28f,0.45f
+        );
+    }
+}
+
+void windowObject(float x,float y,float z)
+{
+    setColor(0.30f,0.15f,0.05f);
+
+    cube(
+        x,y,z,
+        3.0f,4.0f,0.18f
+    );
+
+    setColor(0.08f,0.68f,0.88f);
+
+    cube(
+        x,y+0.05f,z-0.11f,
+        2.55f,3.25f,0.035f
+    );
+
+    setColor(0.92f,0.90f,0.84f);
+
+    cube(
+        x,y+0.05f,z-0.14f,
+        0.10f,3.30f,0.05f
+    );
+
+    cube(
+        x,y+0.05f,z-0.14f,
+        2.55f,0.10f,0.05f
+    );
+
+    setColor(0.36f,0.18f,0.06f);
+
+    cube(
+        x-1.42f,y+0.05f,z-0.14f,
+        0.12f,3.55f,0.08f
+    );
+
+    cube(
+        x+1.42f,y+0.05f,z-0.14f,
+        0.12f,3.55f,0.08f
+    );
+
+    cube(
+        x,y+1.82f,z-0.14f,
+        2.90f,0.12f,0.08f
+    );
+
+    cube(
+        x,y-1.72f,z-0.14f,
+        2.90f,0.12f,0.08f
+    );
+}
+
+// ============================================================
+// NEW: Classic arched stained-glass fanlight window + matching
+// wall sconces, added to the back wall above the entrance door.
+// All state changes (lighting/texture/blend) are pushed and
+// popped so nothing here leaks into the rest of the scene.
+// ============================================================
+
+void drawWarmGlowLayer(
+    float cx,float cy,float cz,
+    float halfW,float halfH,
+    float r,float g,float b,float a
+)
+{
+    glColor4f(r,g,b,a);
+
+    glBegin(GL_QUADS);
+
+    glVertex3f(cx-halfW,cy-halfH,cz);
+    glVertex3f(cx+halfW,cy-halfH,cz);
+    glVertex3f(cx+halfW,cy+halfH,cz);
+    glVertex3f(cx-halfW,cy+halfH,cz);
+
+    glEnd();
+}
+
+// Soft additive "bloom" made of a few overlapping transparent
+// quads. Depth writes are disabled so it can never occlude or be
+// mistaken for solid geometry, and every state change is undone
+// before returning (same technique already used by roomDarkness()).
+void warmGlow(
+    float cx,float cy,float cz,
+    float halfW,float halfH
+)
+{
+    glPushAttrib(
+        GL_ENABLE_BIT |
+        GL_CURRENT_BIT |
+        GL_DEPTH_BUFFER_BIT |
+        GL_COLOR_BUFFER_BIT
+    );
+
+    glDisable(GL_LIGHTING);
+    glDisable(GL_TEXTURE_2D);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA,GL_ONE);
+
+    glDepthMask(GL_FALSE);
+
+    drawWarmGlowLayer(
+        cx,cy,cz,
+        halfW*2.10f,halfH*2.10f,
+        1.0f,0.50f,0.12f,0.045f
+    );
+
+    drawWarmGlowLayer(
+        cx,cy,cz,
+        halfW*1.55f,halfH*1.55f,
+        1.0f,0.62f,0.18f,0.080f
+    );
+
+    drawWarmGlowLayer(
+        cx,cy,cz,
+        halfW*1.05f,halfH*1.05f,
+        1.0f,0.75f,0.32f,0.130f
+    );
+
+    glDepthMask(GL_TRUE);
+
+    glDisable(GL_BLEND);
+
+    glPopAttrib();
+}
+
+// Classic arched (fanlight) stained-glass window, embedded into
+// the back wall above the entrance door. Warm amber/gold/red/
+// orange glass with a small blue-green accent, a dark wood frame
+// and arch, and a subtle warm glow bleeding onto the wall.
+//
+//   x          : horizontal center of the window
+//   baseY      : bottom of the rectangular glass section
+//   z          : depth of the wall the window is embedded in
+//   halfWidth  : half the overall width of the window
+//   rectHeight : height of the rectangular section below the arch
+//   archRadius : radius of the semicircular arch on top
+void archedStainedGlassWindow(
+    float x,float baseY,float z,
+    float halfWidth,float rectHeight,float archRadius
+)
+{
+    glPushAttrib(
+        GL_ENABLE_BIT |
+        GL_CURRENT_BIT |
+        GL_LIGHTING_BIT
+    );
+
+    glDisable(GL_LIGHTING);
+    glDisable(GL_TEXTURE_2D);
+
+    const float springY = baseY + rectHeight;
+
+    const float backZ  = z - 0.05f; // recessed backing, inside the wall
+    const float glassZ = z + 0.00f; // glass sits just behind the frame
+    const float frameZ = z + 0.10f; // wood trim, slightly proud of the wall
+
+    // ---- Recess backing (gives the opening real depth/shadow) ----
+    setColor(0.05f,0.045f,0.04f);
+
+    cube(
+        x,baseY+rectHeight/2.0f,backZ,
+        halfWidth*2.0f+0.24f,
+        rectHeight+0.20f,
+        0.06f
+    );
+
+    // ---- Rectangular stained-glass grid (3 columns x 2 rows) ----
+    float warmColors[5][3] =
+    {
+        {0.80f,0.50f,0.10f}, // amber
+        {0.95f,0.78f,0.20f}, // golden yellow
+        {0.55f,0.07f,0.06f}, // dark red
+        {0.88f,0.42f,0.05f}, // orange
+        {0.10f,0.40f,0.42f}  // small blue/green accent
+    };
+
+    int colorOrder[6] = {0,1,3,2,4,1};
+
+    float gridW = halfWidth*2.0f - 0.24f;
+    float gridH = rectHeight - 0.18f;
+
+    float cellW = (gridW-0.10f)/3.0f;
+    float cellH = (gridH-0.06f)/2.0f;
+
+    float startX = x - gridW/2.0f + cellW/2.0f;
+    float startY = baseY + 0.09f + cellH/2.0f;
+
+    int idx = 0;
+
+    for(int row=0; row<2; row++)
+    {
+        for(int col=0; col<3; col++)
+        {
+            float *c = warmColors[colorOrder[idx%6]];
+
+            setColor(c[0],c[1],c[2]);
+
+            cube(
+                startX+col*(cellW+0.05f),
+                startY+row*(cellH+0.06f),
+                glassZ,
+                cellW,
+                cellH,
+                0.045f
+            );
+
+            idx++;
+        }
+    }
+
+    // ---- Semicircular fan of stained glass in the arch ----
+    for(int a=10; a<=170; a+=20)
+    {
+        float rad = a*3.14159265f/180.0f;
+
+        float px = x + (archRadius-0.14f)*cosf(rad);
+        float py = springY + (archRadius-0.14f)*sinf(rad);
+
+        int paletteIndex;
+
+        if(a<=30 || a>=150)
+            paletteIndex = 4; // blue/green accents near the base
+        else if(a<70)
+            paletteIndex = 2; // dark red
+        else if(a<110)
+            paletteIndex = 1; // golden yellow (crown of the fan)
+        else
+            paletteIndex = 3; // orange
+
+        float *c = warmColors[paletteIndex];
+
+        setColor(c[0],c[1],c[2]);
+
+        cube(
+            px,py,glassZ,
+            0.36f,0.30f,0.045f
+        );
+    }
+
+    // ---- Dark wooden frame ----
+    setColor(0.30f,0.15f,0.05f);
+
+    // Left post
+    cube(
+        x-halfWidth-0.08f,
+        baseY+rectHeight/2.0f,
+        frameZ,
+        0.16f,
+        rectHeight+0.16f,
+        0.15f
+    );
+
+    // Right post
+    cube(
+        x+halfWidth+0.08f,
+        baseY+rectHeight/2.0f,
+        frameZ,
+        0.16f,
+        rectHeight+0.16f,
+        0.15f
+    );
+
+    // Sill
+    cube(
+        x,
+        baseY-0.09f,
+        frameZ+0.03f,
+        halfWidth*2.0f+0.34f,
+        0.16f,
+        0.22f
+    );
+
+    // Springer beam (base of the arch)
+    cube(
+        x,
+        springY,
+        frameZ,
+        halfWidth*2.0f+0.22f,
+        0.14f,
+        0.15f
+    );
+
+    // Wooden arch ring
+    for(int a=0; a<=180; a+=20)
+    {
+        float rad = a*3.14159265f/180.0f;
+
+        float px = x + archRadius*cosf(rad);
+        float py = springY + archRadius*sinf(rad);
+
+        cube(
+            px,py,frameZ,
+            0.22f,0.22f,0.15f
+        );
+    }
+
+    // Keystone
+    cube(
+        x,
+        springY+archRadius+0.06f,
+        frameZ,
+        0.30f,0.24f,0.16f
+    );
+
+    glPopAttrib();
+
+    // ---- Subtle warm glow bleeding onto the wall ----
+    warmGlow(
+        x,
+        springY-rectHeight*0.15f,
+        z+0.16f,
+        halfWidth+0.35f,
+        (rectHeight+archRadius)*0.55f
+    );
+}
+
+// Simple elegant wall sconce: dark bracket + warm glowing "flame".
+// Fully compatible with the existing low-poly rendering style
+// (reuses cube/cylinder/sphere and setColor exactly like the
+// rest of the file).
+//
+//   x,y,z : position on/near the wall
+//   scale : uniform size multiplier (1.0 = default size)
+void wallSconce(
+    float x,float y,float z,
+    float scale
+)
+{
+    glPushAttrib(
+        GL_ENABLE_BIT |
+        GL_CURRENT_BIT
+    );
+
+    glDisable(GL_LIGHTING);
+    glDisable(GL_TEXTURE_2D);
+
+    glPushMatrix();
+
+    glTranslatef(x,y,z);
+    glScalef(scale,scale,scale);
+
+    // Backplate against the wall
+    setColor(0.10f,0.08f,0.06f);
+
+    cube(
+        0,0,0.03f,
+        0.18f,0.42f,0.06f
+    );
+
+    // Arm reaching into the room
+    cube(
+        0,0.02f,0.16f,
+        0.07f,0.07f,0.26f
+    );
+
+    // Cup / holder
+    setColor(0.14f,0.11f,0.08f);
+
+    cylinder(
+        0,-0.06f,0.30f,
+        0.10f,0.14f
+    );
+
+    // Warm glowing "flame"
+    setColor(1.0f,0.72f,0.28f);
+
+    sphere(
+        0,0.14f,0.30f,
+        0.10f
+    );
+
+    glPopMatrix();
+
+    glPopAttrib();
+
+    warmGlow(
+        x,
+        y+0.14f*scale,
+        z+0.30f*scale+0.05f,
+        0.30f*scale,
+        0.30f*scale
+    );
+}
+
+void magicalParticles(
+    float x,float y,float z,
+    float phase
+)
+{
+    glDisable(GL_LIGHTING);
+
+    glLineWidth(1.5f);
+
+    const int stars = 7;
+
+    for(int i=0;i<stars;i++)
+    {
+        float a =
+            phase*0.65f + i*0.90f;
+
+        float radius =
+            0.24f + 0.035f*(i%3);
+
+        float px =
+            x + cosf(a*1.25f+i)*radius;
+
+        float py =
+            y + 0.34f +
+            0.11f*sinf(a*1.8f+i);
+
+        float pz =
+            z + sinf(a*1.15f+i)*radius;
+
+        float size =
+            0.055f + 0.012f*(i%2);
+
+        float glow =
+            0.72f + 0.20f*sinf(a)*sinf(a);
+
+        glColor3f(
+            0.72f*glow,
+            0.86f*glow,
+            1.0f
+        );
+
+        glBegin(GL_LINES);
+
+        glVertex3f(
+            px-size,py,pz
+        );
+
+        glVertex3f(
+            px+size,py,pz
+        );
+
+        glVertex3f(
+            px,py-size,pz
+        );
+
+        glVertex3f(
+            px,py+size,pz
+        );
+
+        glVertex3f(
+            px,py,pz-size
+        );
+
+        glVertex3f(
+            px,py,pz+size
+        );
+
+        glEnd();
+    }
+
+    glLineWidth(1.0f);
+
+    glEnable(GL_LIGHTING);
+}
+
+void magicalBook(
+    float x,float y,float z,
+    int id
+)
+{
+    glPushMatrix();
+
+    glTranslatef(x,y,z);
+
+    bool active =
+        magicBookActive[id];
+
+    float lift =
+        magicBookLift[id];
+
+    glTranslatef(0,lift,0);
+
+    setColor(0.045f,0.08f,0.24f);
+
+    cube(
+        0,0.035f,0,
+        1.25f,0.08f,0.90f
+    );
+
+    float openAngle =
+        active ?
+        18.0f+4.0f*sinf(magicBookPulse)
+        :
+        0.0f;
+
+    glPushMatrix();
+
+    glTranslatef(
+        -0.31f,
+        0.095f,
+        0
+    );
+
+    glRotatef(
+        -openAngle,
+        0,0,1
+    );
+
+    setColor(
+        0.95f,0.92f,0.75f
+    );
+
+    cube(
+        0,0,0,
+        0.62f,0.035f,0.82f
+    );
+
+    setColor(
+        0.35f,0.38f,0.48f
+    );
+
+    for(int i=0;i<4;i++)
+    {
+        cube(
+            -0.03f,
+            0.022f,
+            -0.25f+i*0.16f,
+            0.42f,
+            0.008f,
+            0.018f
+        );
+    }
+
+    glPopMatrix();
+
+    glPushMatrix();
+
+    glTranslatef(
+        0.31f,
+        0.095f,
+        0
+    );
+
+    glRotatef(
+        openAngle,
+        0,0,1
+    );
+
+    setColor(
+        0.98f,0.94f,0.78f
+    );
+
+    cube(
+        0,0,0,
+        0.62f,0.035f,0.82f
+    );
+
+    setColor(
+        0.35f,0.38f,0.48f
+    );
+
+    for(int i=0;i<4;i++)
+    {
+        cube(
+            0.03f,
+            0.022f,
+            -0.25f+i*0.16f,
+            0.42f,
+            0.008f,
+            0.018f
+        );
+    }
+
+    glPopMatrix();
+
+    if(active)
+    {
+        magicalParticles(
+            0,
+            0.14f,
+            0,
+            magicBookPulse+id*1.8f
+        );
+    }
+
+    glPopMatrix();
+}
+
+void drawDeskLabel(
+    float x,float y,float z,
+    const char *label
+)
+{
+    glDisable(GL_LIGHTING);
+    glDisable(GL_TEXTURE_2D);
+
+    glColor3f(
+        1.0f,
+        1.0f,
+        1.0f
+    );
+
+    glRasterPos3f(
+        x,y,z
+    );
+
+    for(
+        const char *p=label;
+        *p!='\0';
+        ++p
+    )
+    {
+        glutBitmapCharacter(
+            GLUT_BITMAP_HELVETICA_18,
+            *p
+        );
+    }
+
+    glEnable(GL_TEXTURE_2D);
+    glEnable(GL_LIGHTING);
+}
+
+void receptionDesk(
+    float x,float y,float z
+)
+{
+    beginGlossyWood();
+
+    texturedCube(
+        x,y,z,
+        4.8f,1.05f,1.15f,
+        texWood,
+        3.0f,1.0f
+    );
+
+    setColor(
+        0.10f,0.24f,0.38f
+    );
+
+    cube(
+        x,y+0.03f,z-0.59f,
+        3.70f,0.62f,0.06f
+    );
+
+    setColor(
+        0.85f,0.67f,0.25f
+    );
+
+    cube(
+        x,y+0.03f,z-0.63f,
+        2.20f,0.08f,0.05f
+    );
+
+    texturedCube(
+        x,y+0.58f,z,
+        5.05f,0.16f,1.25f,
+        texWood,
+        3.0f,1.0f
+    );
+
+    drawDeskLabel(
+        x-0.72f,
+        y+0.03f,
+        z-0.665f,
+        "RECPIANT NOW"
+    );
+
+    endGlossyWood();
+}
+
+void librarian(
+    float x,float y,float z,
+    float rot
+)
+{
+    glPushMatrix();
+
+    glTranslatef(x,y,z);
+    glRotatef(rot,0,1,0);
+
+    setColor(
+        0.12f,0.18f,0.32f
+    );
+
+    cube(
+        0,1.05f,0,
+        0.75f,1.05f,0.42f
+    );
+
+    setColor(
+        0.72f,0.46f,0.30f
+    );
+
+    sphere(
+        0,1.72f,0,
+        0.30f
+    );
+
+    setColor(
+        0.035f,0.025f,0.018f
+    );
+
+    sphere(
+        0,1.86f,0,
+        0.285f
+    );
+
+    setColor(
+        0.72f,0.46f,0.30f
+    );
+
+    cube(
+        -0.38f,1.00f,-0.22f,
+        0.16f,0.42f,0.16f
+    );
+
+    cube(
+        0.38f,1.00f,-0.22f,
+        0.16f,0.42f,0.16f
+    );
+
+    setColor(
+        0.95f,0.85f,0.40f
+    );
+
+    cube(
+        0.18f,1.22f,-0.23f,
+        0.18f,0.10f,0.03f
+    );
+
+    glPopMatrix();
+}
+
+void lightSwitch(
+    float x,float y,float z
+)
+{
+    setColor(
+        0.92f,0.92f,0.88f
+    );
+
+    cube(
+        x,y,z,
+        0.42f,0.62f,0.06f
+    );
+
+    setColor(
+        lightsOn ? 0.15f : 0.06f,
+        lightsOn ? 0.75f : 0.06f,
+        lightsOn ? 0.25f : 0.06f
+    );
+
+    cube(
+        x,y,z-0.045f,
+        0.18f,0.28f,0.035f
+    );
+}
+
+void ceilingFan(
+    float x,float y,float z
+)
+{
+    setColor(
+        0.08f,0.08f,0.08f
+    );
+
+    cube(
+        x,y+0.55f,z,
+        0.06f,1.10f,0.06f
+    );
+
+    setColor(
+        0.06f,0.06f,0.06f
+    );
+
+    cylinder(
+        x,y,z,
+        0.18f,0.18f
+    );
+
+    glPushMatrix();
+
+    glTranslatef(
+        x,y-0.02f,z
+    );
+
+    glRotatef(
+        fanAngle,
+        0,1,0
+    );
+
+    setColor(
+        0.12f,0.12f,0.12f
+    );
+
+    for(int i=0;i<4;i++)
+    {
+        glPushMatrix();
+
+        glRotatef(
+            i*90.0f,
+            0,1,0
+        );
+
+        glTranslatef(
+            1.00f,0,0
+        );
+
+        glPushMatrix();
+
+        glScalef(
+            1.65f,
+            0.075f,
+            0.25f
+        );
+
+        glutSolidCube(1.0f);
+
+        glPopMatrix();
+
+        glPopMatrix();
+    }
+
+    sphere(
+        0,0,0,
+        0.22f
+    );
+
+    glPopMatrix();
+}
+
+void tableTop(
+    float x,float y,float z,
+    float w,float d,float h
+)
+{
+    beginGlossyWood();
+
+    float hw = w/2.0f;
+    float hd = d/2.0f;
+    float cut = 0.28f;
+
+    float vx[8] =
+    {
+        -hw+cut,
+        hw-cut,
+        hw,
+        hw,
+        hw-cut,
+        -hw+cut,
+        -hw,
+        -hw
+    };
+
+    float vz[8] =
+    {
+        -hd,
+        -hd,
+        -hd+cut,
+        hd-cut,
+        hd,
+        hd,
+        hd-cut,
+        -hd+cut
+    };
+
+    glEnable(GL_TEXTURE_2D);
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        texWood
+    );
+
+    glColor3f(1,1,1);
+
+    glBegin(GL_QUADS);
+
+    for(int i=0;i<8;i++)
+    {
+        int j=(i+1)%8;
+
+        glTexCoord2f(0,0);
+
+        glVertex3f(
+            x+vx[i],
+            y+h/2,
+            z+vz[i]
+        );
+
+        glTexCoord2f(1,0);
+
+        glVertex3f(
+            x+vx[j],
+            y+h/2,
+            z+vz[j]
+        );
+
+        glTexCoord2f(1,1);
+
+        glVertex3f(
+            x+vx[j],
+            y-h/2,
+            z+vz[j]
+        );
+
+        glTexCoord2f(0,1);
+
+        glVertex3f(
+            x+vx[i],
+            y-h/2,
+            z+vz[i]
+        );
+    }
+
+    glEnd();
+
+    glBegin(GL_POLYGON);
+
+    for(int i=0;i<8;i++)
+    {
+        glTexCoord2f(
+            (vx[i]+hw)/(2*hw),
+            (vz[i]+hd)/(2*hd)
+        );
+
+        glVertex3f(
+            x+vx[i],
+            y+h/2+0.015f,
+            z+vz[i]
+        );
+    }
+
+    glEnd();
+
+    glBegin(GL_POLYGON);
+
+    for(int i=7;i>=0;i--)
+    {
+        glTexCoord2f(
+            (vx[i]+hw)/(2*hw),
+            (vz[i]+hd)/(2*hd)
+        );
+
+        glVertex3f(
+            x+vx[i],
+            y-h/2-0.015f,
+            z+vz[i]
+        );
+    }
+
+    glEnd();
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        0
+    );
+
+    glDisable(GL_TEXTURE_2D);
+
+    endGlossyWood();
+}
+
+void table(
+    float x,float y,float z
+)
+{
+    beginGlossyWood();
+
+    tableTop(
+        x,y,z,
+        3.10f,1.75f,0.20f
+    );
+
+    setColor(
+        0.42f,0.20f,0.065f
+    );
+
+    texturedCube(
+        x-1.05f,
+        y-0.72f,
+        z-0.58f,
+        0.16f,1.35f,0.16f,
+        texWood,
+        1.0f,3.0f
+    );
+
+    texturedCube(
+        x+1.05f,
+        y-0.72f,
+        z-0.58f,
+        0.16f,1.35f,0.16f,
+        texWood,
+        1.0f,3.0f
+    );
+
+    texturedCube(
+        x-1.05f,
+        y-0.72f,
+        z+0.58f,
+        0.16f,1.35f,0.16f,
+        texWood,
+        1.0f,3.0f
+    );
+
+    texturedCube(
+        x+1.05f,
+        y-0.72f,
+        z+0.58f,
+        0.16f,1.35f,0.16f,
+        texWood,
+        1.0f,3.0f
+    );
+
+    texturedCube(
+        x,
+        y-1.18f,
+        z-0.55f,
+        2.15f,0.12f,0.12f,
+        texWood,
+        3.0f,1.0f
+    );
+
+    texturedCube(
+        x,
+        y-1.18f,
+        z+0.55f,
+        2.15f,0.12f,0.12f,
+        texWood,
+        3.0f,1.0f
+    );
+
+    texturedCube(
+        x-1.05f,
+        y-1.18f,
+        z,
+        0.12f,0.12f,0.95f,
+        texWood,
+        1.0f,1.0f
+    );
+
+    texturedCube(
+        x+1.05f,
+        y-1.18f,
+        z,
+        0.12f,0.12f,0.95f,
+        texWood,
+        1.0f,1.0f
+    );
+
+    endGlossyWood();
+}
+
+void chair(
+    float x,float y,float z,
+    float rot
+)
+{
+    glPushMatrix();
+
+    glTranslatef(x,y,z);
+    glRotatef(rot,0,1,0);
+
+    setColor(
+        0.30f,0.13f,0.045f
+    );
+
+    cube(
+        0,0,0,
+        0.72f,0.14f,0.68f
+    );
+
+    cube(
+        -0.25f,-0.48f,-0.23f,
+        0.11f,0.96f,0.11f
+    );
+
+    cube(
+        0.25f,-0.48f,-0.23f,
+        0.11f,0.96f,0.11f
+    );
+
+    cube(
+        -0.25f,-0.48f,0.23f,
+        0.11f,0.96f,0.11f
+    );
+
+    cube(
+        0.25f,-0.48f,0.23f,
+        0.11f,0.96f,0.11f
+    );
+
+    setColor(
+        0.08f,0.16f,0.30f
+    );
+
+    cube(
+        0,0.09f,0,
+        0.62f,0.12f,0.58f
+    );
+
+    setColor(
+        0.30f,0.13f,0.045f
+    );
+
+    cube(
+        -0.29f,0.35f,0.25f,
+        0.11f,0.95f,0.11f
+    );
+
+    cube(
+        0.29f,0.35f,0.25f,
+        0.11f,0.95f,0.11f
+    );
+
+    setColor(
+        0.08f,0.16f,0.30f
+    );
+
+    cube(
+        0,0.43f,0.27f,
+        0.62f,0.72f,0.13f
+    );
+
+    setColor(
+        0.30f,0.13f,0.045f
+    );
+
+    cube(
+        -0.39f,0.22f,0,
+        0.10f,0.10f,0.62f
+    );
+
+    cube(
+        0.39f,0.22f,0,
+        0.10f,0.10f,0.62f
+    );
+
+    cube(
+        -0.39f,0.43f,0,
+        0.11f,0.11f,0.70f
+    );
+
+    cube(
+        0.39f,0.43f,0,
+        0.11f,0.11f,0.70f
+    );
+
+    glPopMatrix();
+}
+
+void computerDesk(
+    float x,float y,float z,
+    int id
+)
+{
+    glPushMatrix();
+
+    glTranslatef(x,y,z);
+
+    float rot = 0.0f;
+
+    if(id == 2)
+        rot = -90.0f;
+
+    if(id == 3)
+        rot = 90.0f;
+
+    glRotatef(
+        rot,
+        0.0f,
+        1.0f,
+        0.0f
+    );
+
+    setColor(
+        0.35f,0.16f,0.055f
+    );
+
+    cube(
+        0.0f,0.0f,0.0f,
+        2.0f,0.15f,0.85f
+    );
+
+    cube(
+        -0.80f,-0.65f,0.0f,
+        0.12f,1.30f,0.12f
+    );
+
+    cube(
+        0.80f,-0.65f,0.0f,
+        0.12f,1.30f,0.12f
+    );
+
+    setColor(
+        0.04f,0.04f,0.05f
+    );
+
+    cube(
+        0.0f,0.40f,0.0f,
+        0.90f,0.60f,0.08f
+    );
+
+    if(
+        id>=0 &&
+        id<4 &&
+        computerOn[id]
+    )
+    {
+        setColor(
+            0.075f,0.13f,0.20f
+        );
+
+        cube(
+            0.0f,0.40f,-0.055f,
+            0.70f,0.40f,0.025f
+        );
+
+        setColor(
+            0.16f,0.30f,0.42f
+        );
+
+        cube(
+            0.0f,0.565f,-0.075f,
+            0.68f,0.045f,0.012f
+        );
+
+        setColor(
+            0.45f,0.78f,0.95f
+        );
+
+        cube(
+            -0.27f,0.565f,-0.082f,
+            0.055f,0.018f,0.010f
+        );
+
+        cube(
+            -0.18f,0.565f,-0.082f,
+            0.055f,0.018f,0.010f
+        );
+
+        cube(
+            -0.09f,0.565f,-0.082f,
+            0.055f,0.018f,0.010f
+        );
+
+        setColor(
+            0.11f,0.20f,0.29f
+        );
+
+        cube(
+            -0.18f,0.42f,-0.075f,
+            0.28f,0.20f,0.012f
+        );
+
+        cube(
+            0.17f,0.42f,-0.075f,
+            0.28f,0.20f,0.012f
+        );
+
+        setColor(
+            0.68f,0.82f,0.90f
+        );
+
+        cube(
+            -0.18f,0.47f,-0.091f,
+            0.18f,0.018f,0.008f
+        );
+
+        cube(
+            -0.18f,0.42f,-0.091f,
+            0.21f,0.014f,0.008f
+        );
+
+        cube(
+            -0.18f,0.37f,-0.091f,
+            0.15f,0.014f,0.008f
+        );
+
+        cube(
+            0.17f,0.47f,-0.091f,
+            0.17f,0.018f,0.008f
+        );
+
+        cube(
+            0.17f,0.42f,-0.091f,
+            0.20f,0.014f,0.008f
+        );
+
+        cube(
+            0.17f,0.37f,-0.091f,
+            0.13f,0.014f,0.008f
+        );
+
+        setColor(
+            0.13f,0.24f,0.33f
+        );
+
+        cube(
+            0.0f,0.255f,-0.075f,
+            0.68f,0.035f,0.012f
+        );
+    }
+    else
+    {
+        setColor(
+            0.008f,0.010f,0.015f
+        );
+
+        cube(
+            0.0f,0.40f,-0.055f,
+            0.70f,0.40f,0.025f
+        );
+    }
+
+    setColor(
+        0.08f,0.08f,0.08f
+    );
+
+    cube(
+        0.0f,-0.02f,0.0f,
+        0.10f,0.35f,0.10f
+    );
+
+    cube(
+        0.0f,-0.22f,0.0f,
+        0.48f,0.07f,0.30f
+    );
+
+    setColor(
+        0.12f,0.12f,0.12f
+    );
+
+    cube(
+        0.0f,0.02f,-0.30f,
+        0.48f,0.035f,0.22f
+    );
+
+    if(id>=0 && id<4)
+    {
+        if(computerOn[id])
+            setColor(0.15f,0.95f,0.30f);
+        else
+            setColor(0.025f,0.025f,0.025f);
+
+        sphere(
+            0.38f,0.13f,-0.06f,
+            0.025f
+        );
+    }
+
+    glPopMatrix();
+}
+
+void ceilingLight(
+    float x,float y,float z
+)
+{
+    setColor(
+        0.08f,0.08f,0.08f
+    );
+
+    cylinder(
+        x,y,z,
+        0.045f,1.0f
+    );
+
+    setColor(
+        0.10f,0.10f,0.10f
+    );
+
+    cylinder(
+        x,y-1.0f,z,
+        0.20f,0.15f
+    );
+
+    setColor(
+        1.0f,0.90f,0.65f
+    );
+
+    sphere(
+        x,y-1.16f,z,
+        0.14f
+    );
+}
+
+void sideLamp(
+    float x,float z
+)
+{
+    setColor(
+        0.10f,0.10f,0.10f
+    );
+
+    cylinder(
+        x,6.8f,z,
+        0.035f,0.55f
+    );
+
+    setColor(
+        1.0f,0.88f,0.45f
+    );
+
+    sphere(
+        x,6.20f,z,
+        0.16f
+    );
+}
+
+void centralCeilingLight()
+{
+    glPushMatrix();
+
+    glTranslatef(
+        0,
+        7.72f,
+        0
+    );
+
+    if(lightsOn)
+        glColor3f(
+            1.0f,
+            1.0f,
+            0.92f
+        );
+    else
+        glColor3f(
+            0.03f,
+            0.03f,
+            0.03f
+        );
+
+    cube(
+        0.0f,0.0f,0.0f,
+        2.0f,0.12f,2.0f
+    );
+
+    glPopMatrix();
+}
+
+void sideWallBookshelf(
+    float x,float y,float z,
+    float rotY
+)
+{
+    glPushMatrix();
+
+    glTranslatef(x,y,z);
+
+    glRotatef(
+        rotY,
+        0,1,0
+    );
+
+    bookshelf(
+        0.0f,0.0f,0.0f,
+        15.6f,5.9f,1.15f
+    );
+
+    glPopMatrix();
+}
+
+void seatedPerson(
+    float x,float y,float z,
+    float rot
+)
+{
+    glPushMatrix();
+
+    glTranslatef(x,y,z);
+
+    glRotatef(
+        rot,
+        0,1,0
+    );
+
+    glScalef(
+        0.82f,
+        1.0f,
+        0.82f
+    );
+
+    setColor(
+        0.07f,0.07f,0.09f
+    );
+
+    cube(
+        -0.16f,0.25f,-0.18f,
+        0.14f,0.52f,0.14f
+    );
+
+    cube(
+        0.16f,0.25f,-0.18f,
+        0.14f,0.52f,0.14f
+    );
+
+    setColor(
+        0.025f,0.025f,0.025f
+    );
+
+    cube(
+        -0.16f,0.02f,-0.30f,
+        0.22f,0.11f,0.34f
+    );
+
+    cube(
+        0.16f,0.02f,-0.30f,
+        0.22f,0.11f,0.34f
+    );
+
+    setColor(
+        0.08f,0.27f,0.48f
+    );
+
+    cube(
+        0,0.88f,0,
+        0.62f,0.92f,0.40f
+    );
+
+    sphere(
+        -0.34f,1.20f,0,
+        0.16f
+    );
+
+    sphere(
+        0.34f,1.20f,0,
+        0.16f
+    );
+
+    setColor(
+        0.72f,0.48f,0.32f
+    );
+
+    cylinder(
+        0,1.37f,0,
+        0.11f,0.18f
+    );
+
+    sphere(
+        0,1.67f,0,
+        0.31f
+    );
+
+    setColor(
+        0.035f,0.022f,0.012f
+    );
+
+    sphere(
+        0,1.82f,0,
+        0.285f
+    );
+
+    setColor(
+        0.68f,0.43f,0.29f
+    );
+
+    sphere(
+        -0.30f,1.67f,0,
+        0.07f
+    );
+
+    sphere(
+        0.30f,1.67f,0,
+        0.07f
+    );
+
+    setColor(
+        0.76f,0.51f,0.34f
+    );
+
+    sphere(
+        0,1.68f,-0.285f,
+        0.055f
+    );
+
+    setColor(
+        0.015f,0.015f,0.015f
+    );
+
+    sphere(
+        -0.105f,1.75f,-0.275f,
+        0.045f
+    );
+
+    sphere(
+        0.105f,1.75f,-0.275f,
+        0.045f
+    );
+
+    setColor(
+        0.045f,0.025f,0.015f
+    );
+
+    cube(
+        -0.105f,1.84f,-0.275f,
+        0.12f,0.025f,0.025f
+    );
+
+    cube(
+        0.105f,1.84f,-0.275f,
+        0.12f,0.025f,0.025f
+    );
+
+    setColor(
+        0.38f,0.08f,0.08f
+    );
+
+    cube(
+        0,1.57f,-0.29f,
+        0.13f,0.025f,0.025f
+    );
+
+    setColor(
+        0.08f,0.22f,0.38f
+    );
+
+    cube(
+        -0.27f,1.02f,-0.08f,
+        0.14f,0.36f,0.14f
+    );
+
+    cube(
+        -0.19f,0.86f,-0.27f,
+        0.14f,0.16f,0.40f
+    );
+
+    cube(
+        0.27f,1.02f,-0.08f,
+        0.14f,0.36f,0.14f
+    );
+
+    cube(
+        0.19f,0.86f,-0.27f,
+        0.14f,0.16f,0.40f
+    );
+
+    setColor(
+        0.72f,0.48f,0.32f
+    );
+
+    sphere(
+        -0.19f,0.79f,-0.48f,
+        0.085f
+    );
+
+    sphere(
+        0.19f,0.79f,-0.48f,
+        0.085f
+    );
+
+    setColor(
+        0.94f,0.91f,0.78f
+    );
+
+    cube(
+        -0.19f,0.775f,-0.43f,
+        0.36f,0.035f,0.46f
+    );
+
+    cube(
+        0.19f,0.775f,-0.43f,
+        0.36f,0.035f,0.46f
+    );
+
+    setColor(
+        0.55f,0.50f,0.40f
+    );
+
+    cube(
+        0,0.797f,-0.43f,
+        0.025f,0.012f,0.47f
+    );
+
+    setColor(
+        0.35f,0.35f,0.32f
+    );
+
+    for(int i=0;i<3;i++)
+    {
+        cube(
+            -0.19f,
+            0.800f,
+            -0.56f+i*0.11f,
+            0.24f,
+            0.008f,
+            0.008f
+        );
+
+        cube(
+            0.19f,
+            0.800f,
+            -0.56f+i*0.11f,
+            0.24f,
+            0.008f,
+            0.008f
+        );
+    }
+
+    glPopMatrix();
+}
+
+void roomDarkness()
+{
+    if(lightsOn)
+        return;
+
+    glPushAttrib(
+        GL_ENABLE_BIT |
+        GL_COLOR_BUFFER_BIT |
+        GL_DEPTH_BUFFER_BIT
+    );
+
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+
+    glEnable(GL_BLEND);
+
+    glBlendFunc(
+        GL_SRC_ALPHA,
+        GL_ONE_MINUS_SRC_ALPHA
+    );
+
+    glDepthMask(GL_FALSE);
+
+    glColor4f(
+        0.0f,
+        0.0f,
+        0.0f,
+        0.82f
+    );
+
+    glBegin(GL_QUADS);
+
+    glVertex3f(
+        -40.0f,-2.0f,-40.0f
+    );
+
+    glVertex3f(
+        40.0f,-2.0f,-40.0f
+    );
+
+    glVertex3f(
+        40.0f,30.0f,-40.0f
+    );
+
+    glVertex3f(
+        -40.0f,30.0f,-40.0f
+    );
+
+    glEnd();
+
+    glDepthMask(GL_TRUE);
+
+    glDisable(GL_BLEND);
+
+    glPopAttrib();
+}
+
+void drawDarkScreen()
+{
+    if(lightsOn)
+        return;
+
+    glPushAttrib(
+        GL_ENABLE_BIT |
+        GL_COLOR_BUFFER_BIT |
+        GL_DEPTH_BUFFER_BIT
+    );
+
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_TEXTURE_2D);
+
+    glEnable(GL_BLEND);
+
+    glBlendFunc(
+        GL_SRC_ALPHA,
+        GL_ONE_MINUS_SRC_ALPHA
+    );
+
+    glMatrixMode(GL_PROJECTION);
+
+    glPushMatrix();
+
+    glLoadIdentity();
+
+    glMatrixMode(GL_MODELVIEW);
+
+    glPushMatrix();
+
+    glLoadIdentity();
+
+    glColor4f(
+        0.0f,
+        0.0f,
+        0.0f,
+        0.90f
+    );
+
+    glBegin(GL_QUADS);
+
+    glVertex2f(-1.0f,-1.0f);
+    glVertex2f(1.0f,-1.0f);
+    glVertex2f(1.0f,1.0f);
+    glVertex2f(-1.0f,1.0f);
+
+    glEnd();
+
+    glPopMatrix();
+
+    glMatrixMode(GL_PROJECTION);
+
+    glPopMatrix();
+
+    glMatrixMode(GL_MODELVIEW);
+
+    glDisable(GL_BLEND);
+
+    glEnable(GL_DEPTH_TEST);
+
+    glPopAttrib();
+}
+
+void computerStudentSeated(
+    float x,float y,float z,
+    float rot
+)
+{
+    glPushMatrix();
+
+    glTranslatef(x,y,z);
+
+    glRotatef(
+        rot,
+        0,1,0
+    );
+
+    setColor(
+        0.08f,0.08f,0.10f
+    );
+
+    cube(
+        -0.17f,0.30f,-0.02f,
+        0.15f,0.46f,0.15f
+    );
+
+    cube(
+        0.17f,0.30f,-0.02f,
+        0.15f,0.46f,0.15f
+    );
+
+    setColor(
+        0.025f,0.025f,0.025f
+    );
+
+    cube(
+        -0.17f,0.055f,-0.20f,
+        0.23f,0.11f,0.34f
+    );
+
+    cube(
+        0.17f,0.055f,-0.20f,
+        0.23f,0.11f,0.34f
+    );
+
+    setColor(
+        0.12f,0.30f,0.55f
+    );
+
+    cube(
+        0,0.83f,0.08f,
+        0.62f,0.62f,0.40f
+    );
+
+    setColor(
+        0.72f,0.48f,0.32f
+    );
+
+    cylinder(
+        0,1.23f,0.02f,
+        0.10f,0.16f
+    );
+
+    sphere(
+        0,1.49f,0.02f,
+        0.27f
+    );
+
+    setColor(
+        0.035f,0.022f,0.012f
+    );
+
+    sphere(
+        0,1.62f,0.02f,
+        0.25f
+    );
+
+    setColor(
+        0.68f,0.43f,0.29f
+    );
+
+    sphere(
+        -0.27f,1.49f,0.02f,
+        0.06f
+    );
+
+    sphere(
+        0.27f,1.49f,0.02f,
+        0.06f
+    );
+
+    setColor(
+        0.76f,0.51f,0.34f
+    );
+
+    sphere(
+        0,1.49f,-0.25f,
+        0.05f
+    );
+
+    setColor(
+        0.72f,0.48f,0.32f
+    );
+
+    glPushMatrix();
+
+    glTranslatef(
+        -0.24f,
+        0.98f,
+        -0.05f
+    );
+
+    glRotatef(
+        65,
+        1,0,0
+    );
+
+    cylinder(
+        0,0,0,
+        0.065f,0.34f
+    );
+
+    glPopMatrix();
+
+    glPushMatrix();
+
+    glTranslatef(
+        0.24f,
+        0.98f,
+        -0.05f
+    );
+
+    glRotatef(
+        65,
+        1,0,0
+    );
+
+    cylinder(
+        0,0,0,
+        0.065f,0.34f
+    );
+
+    glPopMatrix();
+
+    sphere(
+        -0.24f,0.83f,-0.32f,
+        0.065f
+    );
+
+    sphere(
+        0.24f,0.83f,-0.32f,
+        0.065f
+    );
+
+    glPopMatrix();
+}
+
+void librarianSeatedAtChair(
+    float x,float y,float z,
+    float rot
+)
+{
+    glPushMatrix();
+
+    glTranslatef(x,y,z);
+
+    glRotatef(
+        rot,
+        0,1,0
+    );
+
+    setColor(
+        0.08f,0.08f,0.10f
+    );
+
+    cube(
+        -0.18f,0.30f,-0.05f,
+        0.15f,0.46f,0.15f
+    );
+
+    cube(
+        0.18f,0.30f,-0.05f,
+        0.15f,0.46f,0.15f
+    );
+
+    setColor(
+        0.025f,0.025f,0.025f
+    );
+
+    cube(
+        -0.18f,0.055f,-0.24f,
+        0.25f,0.11f,0.38f
+    );
+
+    cube(
+        0.18f,0.055f,-0.24f,
+        0.25f,0.11f,0.38f
+    );
+
+    setColor(
+        0.20f,0.30f,0.52f
+    );
+
+    cube(
+        0,0.84f,0.08f,
+        0.68f,0.64f,0.44f
+    );
+
+    setColor(
+        0.72f,0.48f,0.32f
+    );
+
+    cylinder(
+        0,1.25f,0.02f,
+        0.105f,0.16f
+    );
+
+    sphere(
+        0,1.51f,0.02f,
+        0.29f
+    );
+
+    setColor(
+        0.045f,0.028f,0.018f
+    );
+
+    sphere(
+        0,1.65f,0.02f,
+        0.27f
+    );
+
+    setColor(
+        0.68f,0.43f,0.29f
+    );
+
+    sphere(
+        -0.29f,1.51f,0.02f,
+        0.06f
+    );
+
+    sphere(
+        0.29f,1.51f,0.02f,
+        0.06f
+    );
+
+    setColor(
+        0.76f,0.51f,0.34f
+    );
+
+    sphere(
+        0,1.51f,-0.27f,
+        0.05f
+    );
+
+    setColor(
+        0.72f,0.48f,0.32f
+    );
+
+    glPushMatrix();
+
+    glTranslatef(
+        -0.25f,
+        1.00f,
+        -0.08f
+    );
+
+    glRotatef(
+        65,
+        1,0,0
+    );
+
+    cylinder(
+        0,0,0,
+        0.07f,0.36f
+    );
+
+    glPopMatrix();
+
+    glPushMatrix();
+
+    glTranslatef(
+        0.25f,
+        1.00f,
+        -0.08f
+    );
+
+    glRotatef(
+        65,
+        1,0,0
+    );
+
+    cylinder(
+        0,0,0,
+        0.07f,0.36f
+    );
+
+    glPopMatrix();
+
+    setColor(
+        0.95f,0.85f,0.40f
+    );
+
+    cube(
+        0.17f,1.04f,-0.235f,
+        0.18f,0.10f,0.035f
+    );
+
+    glPopMatrix();
+}
+
+struct ClickTarget
+{
+    float x1,y1,z1;
+    float x2,y2,z2;
+};
+
+bool rayBoxHit(
+    float ox,float oy,float oz,
+    float dx,float dy,float dz,
+    const ClickTarget &b,
+    float &t
+)
+{
+    float tmin=0.0f;
+    float tmax=100.0f;
+
+    float o[3] = {
+        ox,oy,oz
+    };
+
+    float d[3] = {
+        dx,dy,dz
+    };
+
+    float mn[3] = {
+        b.x1,b.y1,b.z1
+    };
+
+    float mx[3] = {
+        b.x2,b.y2,b.z2
+    };
+
+    for(int i=0;i<3;i++)
+    {
+        if(fabsf(d[i])<0.00001f)
+        {
+            if(
+                o[i]<mn[i] ||
+                o[i]>mx[i]
+            )
+                return false;
+        }
+        else
+        {
+            float a =
+                (mn[i]-o[i])/d[i];
+
+            float c =
+                (mx[i]-o[i])/d[i];
+
+            if(a>c)
+            {
+                float q=a;
+                a=c;
+                c=q;
+            }
+
+            if(a>tmin)
+                tmin=a;
+
+            if(c<tmax)
+                tmax=c;
+
+            if(tmin>tmax)
+                return false;
+        }
+    }
+
+    t=tmin;
+
+    return
+        t>=0.0f &&
+        t<=100.0f;
+}
+
+bool findInteractiveTarget(
+    int &type,
+    int &index
+)
+{
+    float rad =
+        3.14159265f/180.0f;
+
+    float yr =
+        yaw*rad;
+
+    float pr =
+        pitch*rad;
+
+    float dx =
+        cosf(pr)*sinf(yr);
+
+    float dy =
+        sinf(pr);
+
+    float dz =
+        cosf(pr)*cosf(yr);
+
+    float bestT =
+        100000.0f;
+
+    type=-1;
+    index=-1;
+
+    const float bx[2] =
+    {
+        -3.2f,
+        3.2f
+    };
+
+    const float bz[2] =
+    {
+        -3.4f,
+        -3.4f
+    };
+
+    for(int i=0;i<2;i++)
+    {
+        ClickTarget b =
+        {
+            bx[i]-0.85f,
+            1.15f,
+            bz[i]-0.65f,
+
+            bx[i]+0.85f,
+            2.25f,
+            bz[i]+0.65f
+        };
+
+        float t;
+
+        if(
+            rayBoxHit(
+                camX,camY,camZ,
+                dx,dy,dz,
+                b,t
+            ) &&
+            t<bestT
+        )
+        {
+            bestT=t;
+            type=1;
+            index=i;
+        }
+    }
+
+    const float cx[4] =
+    {
+        -5.7f,
+        5.7f,
+        -7.0f,
+        7.0f
+    };
+
+    const float cz[4] =
+    {
+        4.85f,
+        4.85f,
+        1.5f,
+        1.5f
+    };
+
+    for(int i=0;i<4;i++)
+    {
+        ClickTarget b =
+        {
+            cx[i]-0.58f,
+            1.07f,
+            cz[i]-0.18f,
+
+            cx[i]+0.58f,
+            1.83f,
+            cz[i]+0.18f
+        };
+
+        float t;
+
+        if(
+            rayBoxHit(
+                camX,camY,camZ,
+                dx,dy,dz,
+                b,t
+            ) &&
+            t<bestT
+        )
+        {
+            bestT=t;
+            type=2;
+            index=i;
+        }
+    }
+
+    return type!=-1;
+}
+
+void handleMouseClick(
+    int button,
+    int state,
+    int x,
+    int y
+)
+{
+    if(
+        button!=GLUT_LEFT_BUTTON ||
+        state!=GLUT_DOWN
+    )
+        return;
+
+    int type,index;
+
+    if(
+        !findInteractiveTarget(
+            type,index
+        )
+    )
+        return;
+
+    if(type==1)
+    {
+        magicBookActive[index] =
+            !magicBookActive[index];
+
+        magicBookOpen =
+            magicBookActive[0] ||
+            magicBookActive[1];
+    }
+    else if(type==2)
+    {
+        computerOn[index] =
+            !computerOn[index];
+    }
+
+    glutPostRedisplay();
+}
+
+
+// ============================================================
+// NEW DECORATIVE WOODEN WALL
+// ============================================================
+
+void woodenBackWall()
+{
+    glPushAttrib(
+        GL_ENABLE_BIT |
+        GL_CURRENT_BIT |
+        GL_LIGHTING_BIT
+    );
+
+    glDisable(GL_LIGHTING);
+    glDisable(GL_BLEND);
+
+    // Main wooden wall panel
+    texturedCube(
+        0.0f,
+        4.0f,
+        9.72f,
+        21.0f,
+        7.8f,
+        0.22f,
+        texWood,
+        8.0f,
+        4.0f
+    );
+
+    // Large top decorative beam
+    texturedCube(
+        0.0f,
+        7.72f,
+        9.52f,
+        21.25f,
+        0.35f,
+        0.45f,
+        texWood,
+        8.0f,
+        1.0f
+    );
+
+    // Bottom decorative beam
+    texturedCube(
+        0.0f,
+        0.30f,
+        9.52f,
+        21.25f,
+        0.42f,
+        0.45f,
+        texWood,
+        8.0f,
+        1.0f
+    );
+
+    // Vertical wooden decorative strips
+    for(int i=-4; i<=4; i++)
+    {
+        float x = i * 2.15f;
+
+        texturedCube(
+            x,
+            4.0f,
+            9.47f,
+            0.12f,
+            7.05f,
+            0.28f,
+            texWood,
+            1.0f,
+            5.0f
+        );
+    }
+
+    // Decorative horizontal strips
+    for(int j=1; j<=2; j++)
+    {
+        texturedCube(
+            0.0f,
+            1.9f + j*1.9f,
+            9.47f,
+            20.75f,
+            0.10f,
+            0.28f,
+            texWood,
+            8.0f,
+            1.0f
+        );
+    }
+
+    glPopAttrib();
+}
+
+// ============================================================
+// LIBRARY WINDOW
+// ============================================================
+
+void libraryWindow(
+    float x,
+    float y,
+    float z
+)
+{
+    glPushAttrib(
+        GL_ENABLE_BIT |
+        GL_CURRENT_BIT |
+        GL_LIGHTING_BIT |
+        GL_BLEND
+    );
+
+    glDisable(GL_LIGHTING);
+    glDisable(GL_TEXTURE_2D);
+
+    // Outer dark wooden frame
+    setColor(0.20f,0.085f,0.025f);
+
+    cube(
+        x,
+        y,
+        z,
+        3.55f,
+        3.65f,
+        0.24f
+    );
+
+    // Inner golden wooden border
+    setColor(0.55f,0.30f,0.08f);
+
+    cube(
+        x,
+        y,
+        z-0.15f,
+        3.15f,
+        3.25f,
+        0.08f
+    );
+
+    // Glass
+    setColor(0.18f,0.58f,0.78f);
+
+    cube(
+        x,
+        y,
+        z-0.21f,
+        2.78f,
+        2.88f,
+        0.035f
+    );
+
+    // Slight sky-light inner glass
+    setColor(0.30f,0.75f,0.90f);
+
+    cube(
+        x,
+        y+0.45f,
+        z-0.235f,
+        2.55f,
+        1.65f,
+        0.018f
+    );
+
+    // Window cross frame
+    setColor(0.88f,0.68f,0.30f);
+
+    cube(
+        x,
+        y,
+        z-0.27f,
+        0.11f,
+        2.92f,
+        0.07f
+    );
+
+    cube(
+        x,
+        y,
+        z-0.27f,
+        2.82f,
+        0.11f,
+        0.07f
+    );
+
+    // Four inner pane decorations
+    setColor(0.12f,0.42f,0.58f);
+
+    cube(
+        x-0.70f,
+        y+0.72f,
+        z-0.285f,
+        0.85f,
+        0.70f,
+        0.025f
+    );
+
+    cube(
+        x+0.70f,
+        y+0.72f,
+        z-0.285f,
+        0.85f,
+        0.70f,
+        0.025f
+    );
+
+    // Bottom sill
+    setColor(0.28f,0.12f,0.035f);
+
+    cube(
+        x,
+        y-1.63f,
+        z-0.30f,
+        3.75f,
+        0.22f,
+        0.42f
+    );
+
+    // Top crown
+    setColor(0.42f,0.20f,0.05f);
+
+    cube(
+        x,
+        y+1.84f,
+        z-0.01f,
+        3.85f,
+        0.24f,
+        0.40f
+    );
+
+    // Small golden center ornament
+    setColor(0.88f,0.63f,0.18f);
+
+    sphere(
+        x,
+        y+1.98f,
+        z-0.23f,
+        0.12f
+    );
+
+    glPopAttrib();
+}
+
+// ============================================================
+// FLOWER BOX + FLOWERS
+// ============================================================
+
+void singleFlower(
+    float x,
+    float y,
+    float z,
+    float scale,
+    int type
+)
+{
+    glPushMatrix();
+
+    glTranslatef(x,y,z);
+    glScalef(scale,scale,scale);
+
+    // Green stem
+    setColor(0.08f,0.42f,0.10f);
+
+    cylinder(
+        0.0f,
+        0.0f,
+        0.0f,
+        0.035f,
+        0.58f
+    );
+
+    // Leaves
+    setColor(0.10f,0.55f,0.12f);
+
+    sphere(
+        -0.10f,
+        0.25f,
+        0.02f,
+        0.09f
+    );
+
+    sphere(
+         0.10f,
+         0.34f,
+         0.02f,
+         0.09f
+    );
+
+    // Flower head
+    float petalR;
+    float petalG;
+    float petalB;
+
+    if(type % 3 == 0)
+    {
+        petalR=0.95f;
+        petalG=0.18f;
+        petalB=0.28f;
+    }
+    else if(type % 3 == 1)
+    {
+        petalR=0.95f;
+        petalG=0.72f;
+        petalB=0.08f;
+    }
+    else
+    {
+        petalR=0.80f;
+        petalG=0.20f;
+        petalB=0.82f;
+    }
+
+    setColor(petalR,petalG,petalB);
+
+    for(int i=0;i<5;i++)
+    {
+        float a =
+            i*72.0f*3.14159265f/180.0f;
+
+        sphere(
+            cosf(a)*0.12f,
+            0.61f+sinf(a)*0.12f,
+            0.0f,
+            0.10f
+        );
+    }
+
+    // Flower center
+    setColor(1.0f,0.78f,0.12f);
+
+    sphere(
+        0.0f,
+        0.61f,
+        -0.015f,
+        0.075f
+    );
+
+    glPopMatrix();
+}
+
+void flowerBox(
+    float x,
+    float y,
+    float z,
+    float offset
+)
+{
+    glPushMatrix();
+
+    // Wooden / ceramic planter
+    setColor(0.48f,0.22f,0.06f);
+
+    cube(
+        x,
+        y,
+        z,
+        3.10f,
+        0.42f,
+        0.62f
+    );
+
+    // Soil
+    setColor(0.12f,0.065f,0.025f);
+
+    cube(
+        x,
+        y+0.23f,
+        z-0.01f,
+        2.80f,
+        0.08f,
+        0.48f
+    );
+
+    // Flowers
+    singleFlower(
+        x-1.05f,
+        y+0.24f,
+        z,
+        0.85f,
+        0
+    );
+
+    singleFlower(
+        x-0.35f,
+        y+0.24f,
+        z,
+        0.95f,
+        1
+    );
+
+    singleFlower(
+        x+0.35f,
+        y+0.24f,
+        z,
+        0.82f,
+        2
+    );
+
+    singleFlower(
+        x+1.05f,
+        y+0.24f,
+        z,
+        0.90f,
+        0
+    );
+
+    glPopMatrix();
+}
+
+void scene()
+{
+    floor();
+
+    walls();
+
+    // Centered double wooden entrance.
+    doubleWoodDoor(
+        0.0f,
+        0.0f,
+        -9.78f
+    );
+
+    // Classic arched stained-glass fanlight window above the
+    // entrance, with two wall sconces flanking it. Sits entirely
+    // above the door and well clear of the corner bookshelves.
+    archedStainedGlassWindow(
+        0.0f,      // x          - centered on the back wall / door
+        5.85f,     // baseY      - just above the door top (~5.6)
+        -9.90f,    // z          - embedded in the back wall
+        0.95f,     // halfWidth  - overall window half-width
+        0.75f,     // rectHeight - height of the rectangular section
+        0.95f      // archRadius - radius of the arch on top
+    );
+
+    wallSconce(-2.5f, 4.2f, -9.85f, 1.0f);
+    wallSconce( 2.5f, 4.2f, -9.85f, 1.0f);
+
+    // Wall bookshelves
+    sideWallBookshelf(
+        -8.45f,
+        -0.05f,
+        0.0f,
+        90.0f
+    );
+
+    sideWallBookshelf(
+        8.45f,
+        -0.05f,
+        0.0f,
+        -90.0f
+    );
+
+    bookshelf(
+        -5.65f,
+        -0.95f,
+        -7.50f,
+        4.2f,
+        5.35f,
+        0.48f
+    );
+
+    bookshelf(
+        5.65f,
+        -0.05f,
+        -7.50f,
+        4.2f,
+        5.9f,
+        0.48f
+    );
+
+    // Additional free-standing bookshelves
+    bookshelf(
+        -5.6f,
+        -0.95f,
+        -0.55f,
+        2.7f,
+        5.35f,
+        0.62f
+    );
+
+    bookshelf(
+        5.6f,
+        -0.95f,
+        -0.55f,
+        2.7f,
+        5.35f,
+        0.62f
+    );
+
+    bookshelf(
+        -5.6f,
+        -0.95f,
+        3.10f,
+        2.7f,
+        5.35f,
+        0.62f
+    );
+
+    bookshelf(
+        5.6f,
+        -0.95f,
+        3.10f,
+        2.7f,
+        5.35f,
+        0.62f
+    );
+
+
+    // Table 1
+    table(
+        -3.2f,
+        1.25f,
+        -3.4f
+    );
+
+    chair(
+        -4.65f,
+        0.58f,
+        -3.85f,
+        -90.0f
+    );
+
+    chair(
+        -4.65f,
+        0.58f,
+        -2.95f,
+        -90.0f
+    );
+
+    chair(
+        -1.75f,
+        0.58f,
+        -3.85f,
+        90.0f
+    );
+
+    chair(
+        -1.75f,
+        0.58f,
+        -2.95f,
+        90.0f
+    );
+
+
+    // Table 2
+    table(
+        3.2f,
+        1.25f,
+        -3.4f
+    );
+
+    chair(
+        1.75f,
+        0.58f,
+        -3.85f,
+        -90.0f
+    );
+
+    chair(
+        1.75f,
+        0.58f,
+        -2.95f,
+        -90.0f
+    );
+
+    chair(
+        4.65f,
+        0.58f,
+        -3.85f,
+        90.0f
+    );
+
+    chair(
+        4.65f,
+        0.58f,
+        -2.95f,
+        90.0f
+    );
+
+
+    // Table 3
+    table(
+        -3.2f,
+        1.25f,
+        1.2f
+    );
+
+    chair(
+        -4.65f,
+        0.58f,
+        0.75f,
+        -90.0f
+    );
+
+    chair(
+        -4.65f,
+        0.58f,
+        1.65f,
+        -90.0f
+    );
+
+    chair(
+        -1.75f,
+        0.58f,
+        0.75f,
+        90.0f
+    );
+
+    chair(
+        -1.75f,
+        0.58f,
+        1.65f,
+        90.0f
+    );
+
+
+    // Table 4
+    table(
+        3.2f,
+        1.25f,
+        1.2f
+    );
+
+    chair(
+        1.75f,
+        0.58f,
+        0.75f,
+        -90.0f
+    );
+
+    chair(
+        1.75f,
+        0.58f,
+        1.65f,
+        -90.0f
+    );
+
+    chair(
+        4.65f,
+        0.58f,
+        0.75f,
+        90.0f
+    );
+
+    chair(
+        4.65f,
+        0.58f,
+        1.65f,
+        90.0f
+    );
+
+
+    // Table 5
+    table(
+        0.0f,
+        1.25f,
+        5.2f
+    );
+
+    chair(
+        -1.45f,
+        0.58f,
+        4.75f,
+        -90.0f
+    );
+
+    chair(
+        -1.45f,
+        0.58f,
+        5.65f,
+        -90.0f
+    );
+
+    chair(
+        1.45f,
+        0.58f,
+        4.75f,
+        90.0f
+    );
+
+    chair(
+        1.45f,
+        0.58f,
+        5.65f,
+        90.0f
+    );
+
+
+    // Seated library visitors
+    seatedPerson(
+        -4.65f,
+        0.58f,
+        -3.85f,
+        -90.0f
+    );
+
+    seatedPerson(
+        1.75f,
+        0.58f,
+        -3.85f,
+        -90.0f
+    );
+
+    seatedPerson(
+        -4.65f,
+        0.58f,
+        0.75f,
+        -90.0f
+    );
+
+    seatedPerson(
+        4.65f,
+        0.58f,
+        1.65f,
+        90.0f
+    );
+
+    seatedPerson(
+        1.75f,
+        0.58f,
+        0.75f,
+        -90.0f
+    );
+
+    seatedPerson(
+        -1.45f,
+        0.58f,
+        4.75f,
+        -90.0f
+    );
+
+
+    // Magical reading books
+    magicalBook(
+        -3.2f,
+        1.40f,
+        -3.4f,
+        0
+    );
+
+    magicalBook(
+        3.2f,
+        1.40f,
+        -3.4f,
+        1
+    );
+
+
+    // Reception area
+    receptionDesk(
+        0.0f,
+        0.95f,
+        7.20f
+    );
+
+    // Librarian chair
+    chair(
+        0.0f,
+        0.42f,
+        8.72f,
+        0.0f
+    );
+
+    librarianSeatedAtChair(
+        0.0f,
+        0.42f,
+        8.72f,
+        0.0f
+    );
+
+
+    // ============================================================
+    // DECORATIVE WOODEN WALL BEHIND THE LIBRARIAN
+    // Two large windows + flower decorations
+    // ============================================================
+    woodenBackWall();
+
+    libraryWindow(
+        -5.0f,
+        4.55f,
+        9.72f
+    );
+
+    libraryWindow(
+         5.0f,
+        4.55f,
+        9.72f
+    );
+
+    flowerBox(
+        -5.0f,
+        2.35f,
+        9.48f,
+        0.0f
+    );
+
+    flowerBox(
+         5.0f,
+        2.35f,
+        9.48f,
+        1.8f
+    );
+
+
+    // Computer desks
+    computerDesk(
+        -5.7f,
+        1.05f,
+        4.85f,
+        0
+    );
+
+    chair(
+        -5.7f,
+        0.42f,
+        5.45f,
+        0.0f
+    );
+
+    computerStudentSeated(
+        -5.7f,
+        0.42f,
+        5.45f,
+        0.0f
+    );
+
+
+    computerDesk(
+        5.7f,
+        1.05f,
+        4.85f,
+        1
+    );
+
+    chair(
+        5.7f,
+        0.42f,
+        5.45f,
+        0.0f
+    );
+
+    computerStudentSeated(
+        5.7f,
+        0.42f,
+        5.45f,
+        0.0f
+    );
+
+
+    // Additional computer stations
+    computerDesk(
+        -7.0f,
+        1.05f,
+        1.5f,
+        2
+    );
+
+    computerDesk(
+        7.0f,
+        1.05f,
+        1.5f,
+        3
+    );
+
+
+    // Wall light switch
+    lightSwitch(
+        4.8f,
+        2.0f,
+        -7.78f
+    );
+
+
+    // Central ceiling light
+    centralCeilingLight();
+
+
+    // Four rotating ceiling fans
+    ceilingFan(
+        -4.8f,
+        6.8f,
+        -2.5f
+    );
+
+    ceilingFan(
+        4.8f,
+        6.8f,
+        -2.5f
+    );
+
+    ceilingFan(
+        -4.8f,
+        6.8f,
+        3.5f
+    );
+
+    ceilingFan(
+        4.8f,
+        6.8f,
+        3.5f
+    );
+}
+
+void setupCamera()
+{
+    float rad =
+        3.14159265f/180.0f;
+
+    float yawr =
+        yaw*rad;
+
+    float pitchr =
+        pitch*rad;
+
+    float lookX =
+        cos(pitchr)*sin(yawr);
+
+    float lookY =
+        sin(pitchr);
+
+    float lookZ =
+        cos(pitchr)*cos(yawr);
+
+    gluLookAt(
+        camX,
+        camY,
+        camZ,
+
+        camX+lookX,
+        camY+lookY,
+        camZ+lookZ,
+
+        0.0f,
+        1.0f,
+        0.0f
+    );
+}
+
+void display()
+{
+    glClear(
+        GL_COLOR_BUFFER_BIT |
+        GL_DEPTH_BUFFER_BIT
+    );
+
+    glMatrixMode(GL_MODELVIEW);
+
+    glLoadIdentity();
+
+    setupCamera();
+
+    scene();
+
+    drawDarkScreen();
+
+    glutSwapBuffers();
+}
+
+// ============================================================
+// NEW: bookshelf collision so the player can no longer walk
+// into a shelf and end up looking at the plain back panel.
+// ============================================================
+bool blockedByBookshelf(float x, float z)
+{
+    const float r = 0.38f; // same player radius used below
+
+    struct Shelf
+    {
+        float cx, cz;        // center in world space
+        float halfX, halfZ;  // half-extent in world space
+    };
+
+    Shelf shelves[] =
+    {
+        // Side wall bookshelves (rotated 90 / -90):
+        // their "width" (15.6) runs along Z, "depth" (1.15) runs along X
+        { -8.45f, 0.0f, 0.575f + r, 7.80f + r },
+        {  8.45f, 0.0f, 0.575f + r, 7.80f + r },
+
+        // Corner bookshelves near the back wall (4.2 wide x 0.48 deep)
+        { -5.65f, -7.50f, 2.10f + r, 0.24f + r },
+        {  5.65f, -7.50f, 2.10f + r, 0.24f + r },
+
+        // Four free-standing bookshelves (2.7 wide x 0.62 deep)
+        { -5.6f, -0.55f, 1.35f + r, 0.31f + r },
+        {  5.6f, -0.55f, 1.35f + r, 0.31f + r },
+        { -5.6f,  3.10f, 1.35f + r, 0.31f + r },
+        {  5.6f,  3.10f, 1.35f + r, 0.31f + r },
+
+        // Full rear wall bookshelf (21.3 wide x 0.62 deep)
+        {  0.0f, 9.35f, 10.65f + r, 0.31f + r }
+    };
+
+    const int count = sizeof(shelves) / sizeof(shelves[0]);
+
+    for (int i = 0; i < count; i++)
+    {
+        if (x > shelves[i].cx - shelves[i].halfX &&
+            x < shelves[i].cx + shelves[i].halfX &&
+            z > shelves[i].cz - shelves[i].halfZ &&
+            z < shelves[i].cz + shelves[i].halfZ)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool blocked(
+    float x,
+    float z
+)
+{
+    const float r = 0.38f;
+
+    // Keep player inside library
+    if(
+        x < -9.55f ||
+        x > 9.55f ||
+        z < -9.15f ||
+        z > 9.15f
+    )
+        return true;
+
+    const float tx[] =
+    {
+        -3.2f,
+        3.2f,
+        -3.2f,
+        3.2f,
+        0.0f
+    };
+
+    const float tz[] =
+    {
+        -3.4f,
+        -3.4f,
+        1.2f,
+        1.2f,
+        5.2f
+    };
+
+    for(int i=0;i<5;i++)
+    {
+        if(
+            x > tx[i]-1.55f-r &&
+            x < tx[i]+1.55f+r &&
+            z > tz[i]-0.92f-r &&
+            z < tz[i]+0.92f+r
+        )
+            return true;
+    }
+
+    // NEW: block movement into any bookshelf
+    if(blockedByBookshelf(x, z))
+        return true;
+
+    return false;
+}
+
+void tryMove(
+    float dx,
+    float dz
+)
+{
+    float nx =
+        camX + dx;
+
+    float nz =
+        camZ + dz;
+
+    if(
+        !blocked(
+            nx,
+            camZ
+        )
+    )
+        camX = nx;
+
+    if(
+        !blocked(
+            camX,
+            nz
+        )
+    )
+        camZ = nz;
+}
+
+void update(int value)
+{
+    float targetDoorAngle =
+        doubleDoorOpen ?
+        88.0f :
+        0.0f;
+
+    float doorSpeed = 4.0f;
+
+    if(
+        doubleDoorAngle <
+        targetDoorAngle
+    )
+    {
+        doubleDoorAngle =
+            fminf(
+                doubleDoorAngle +
+                doorSpeed,
+                targetDoorAngle
+            );
+    }
+    else if(
+        doubleDoorAngle >
+        targetDoorAngle
+    )
+    {
+        doubleDoorAngle =
+            fmaxf(
+                doubleDoorAngle -
+                doorSpeed,
+                targetDoorAngle
+            );
+    }
+
+
+    // Continuous ceiling fan
+    fanAngle += fanSpeed;
+
+    if(
+        fanAngle >= 360.0f
+    )
+        fanAngle -= 360.0f;
+
+
+    // Magical books
+    magicBookPulse += 0.10f;
+
+    for(int i=0;i<2;i++)
+    {
+        float targetLift =
+            magicBookActive[i] ?
+            0.22f :
+            0.0f;
+
+        if(
+            magicBookLift[i] <
+            targetLift
+        )
+        {
+            magicBookLift[i] =
+                fminf(
+                    magicBookLift[i]+0.012f,
+                    targetLift
+                );
+        }
+        else if(
+            magicBookLift[i] >
+            targetLift
+        )
+        {
+            magicBookLift[i] =
+                fmaxf(
+                    magicBookLift[i]-0.012f,
+                    targetLift
+                );
+        }
+    }
+
+    if(
+        fanAngle >= 360.0f
+    )
+        fanAngle -= 360.0f;
+
+
+    float rad =
+        3.14159265f/180.0f;
+
+    float yawr =
+        yaw*rad;
+
+    float forwardX =
+        sin(yawr);
+
+    float forwardZ =
+        cos(yawr);
+
+    float rightX =
+        -cos(yawr);
+
+    float rightZ =
+        sin(yawr);
+
+    bool shiftPressed =
+        (GetAsyncKeyState(VK_SHIFT)&0x8000);
+
+    float speed =
+        shiftPressed ?
+        0.22f :
+        0.10f;
+
+
+    if(
+        keys['w'] ||
+        keys['W']
+    )
+    {
+        tryMove(
+            forwardX*speed,
+            forwardZ*speed
+        );
+    }
+
+    if(
+        keys['s'] ||
+        keys['S']
+    )
+    {
+        tryMove(
+            -forwardX*speed,
+            -forwardZ*speed
+        );
+    }
+
+    if(
+        keys['a'] ||
+        keys['A']
+    )
+    {
+        tryMove(
+            -rightX*speed,
+            -rightZ*speed
+        );
+    }
+
+    if(
+        keys['d'] ||
+        keys['D']
+    )
+    {
+        tryMove(
+            rightX*speed,
+            rightZ*speed
+        );
+    }
+
+
+    if(camX < -10.3f)
+        camX = -10.2f;
+
+    if(camX > 10.3f)
+        camX = 10.2f;
+
+    if(camZ < -9.3f)
+        camZ = -9.2f;
+
+    if(camZ > 9.3f)
+        camZ = 9.2f;
+
+
+    glutPostRedisplay();
+
+    glutTimerFunc(
+        16,
+        update,
+        0
+    );
+}
+
+void keyDown(
+    unsigned char key,
+    int x,
+    int y
+)
+{
+    if(
+        key=='e' ||
+        key=='E'
+    )
+        doubleDoorOpen =
+            !doubleDoorOpen;
+
+
+    // M = both magical books
+    if(
+        key=='m' ||
+        key=='M'
+    )
+    {
+        magicBookOpen =
+            !magicBookOpen;
+
+        magicBookActive[0] =
+            magicBookOpen;
+
+        magicBookActive[1] =
+            magicBookOpen;
+    }
+
+
+    // F = fan speed
+    if(
+        key=='f' ||
+        key=='F'
+    )
+    {
+        if(fanSpeed < 0.5f)
+            fanSpeed = 4.0f;
+
+        else if(fanSpeed < 6.0f)
+            fanSpeed = 8.0f;
+
+        else if(fanSpeed < 10.0f)
+            fanSpeed = 14.0f;
+
+        else
+            fanSpeed = 0.0f;
+    }
+
+
+    // L = light
+    if(
+        key=='l' ||
+        key=='L'
+    )
+        lightsOn =
+            !lightsOn;
+
+
+    keys[key] = true;
+
+
+    if(key == 27)
+        exit(0);
+
+
+    if(
+        key == 'r' ||
+        key == 'R'
+    )
+    {
+        camX = 0.0f;
+        camY = 1.75f;
+        camZ = 7.0f;
+
+        yaw = 180.0f;
+        pitch = 0.0f;
+
+        warping = true;
+
+        glutWarpPointer(
+            centerX,
+            centerY
+        );
+    }
+}
+
+void keyUp(
+    unsigned char key,
+    int x,
+    int y
+)
+{
+    keys[key] = false;
+}
+
+void mouseMove(
+    int x,
+    int y
+)
+{
+    if(warping)
+    {
+        warping = false;
+        return;
+    }
+
+    int dx =
+        x-centerX;
+
+    int dy =
+        y-centerY;
+
+    float sensitivity =
+        0.18f;
+
+    yaw -=
+        dx*sensitivity;
+
+    pitch -=
+        dy*sensitivity;
+
+
+    if(yaw > 360.0f)
+        yaw -= 360.0f;
+
+    if(yaw < 0.0f)
+        yaw += 360.0f;
+
+
+    if(pitch > 85.0f)
+        pitch = 85.0f;
+
+    if(pitch < -85.0f)
+        pitch = -85.0f;
+
+
+    warping = true;
+
+    glutWarpPointer(
+        centerX,
+        centerY
+    );
+
+    glutPostRedisplay();
+}
+
+void reshape(
+    int w,
+    int h
+)
+{
+    if(h == 0)
+        h = 1;
+
+    centerX =
+        w/2;
+
+    centerY =
+        h/2;
+
+    glViewport(
+        0,
+        0,
+        w,
+        h
+    );
+
+    glMatrixMode(
+        GL_PROJECTION
+    );
+
+    glLoadIdentity();
+
+    gluPerspective(
+        70.0,
+        (float)w/(float)h,
+        0.1,
+        100.0
+    );
+
+    glMatrixMode(
+        GL_MODELVIEW
+    );
+}
+
+void init()
+{
+    glClearColor(
+        0.72f,
+        0.72f,
+        0.72f,
+        1.0f
+    );
+
+    glEnable(
+        GL_DEPTH_TEST
+    );
+
+    glDisable(
+        GL_LIGHTING
+    );
+
+    glDisable(
+        GL_FOG
+    );
+
+    glShadeModel(
+        GL_SMOOTH
+    );
+
+
+    GLfloat lightPos[] =
+    {
+        0.0f,
+        7.0f,
+        1.5f,
+        1.0f
+    };
+
+    GLfloat lightDiffuse[] =
+    {
+        1.0f,
+        0.96f,
+        0.90f,
+        1.0f
+    };
+
+    GLfloat lightSpecular[] =
+    {
+        1.0f,
+        1.0f,
+        1.0f,
+        1.0f
+    };
+
+    glLightfv(
+        GL_LIGHT0,
+        GL_POSITION,
+        lightPos
+    );
+
+    glLightfv(
+        GL_LIGHT0,
+        GL_DIFFUSE,
+        lightDiffuse
+    );
+
+    glLightfv(
+        GL_LIGHT0,
+        GL_SPECULAR,
+        lightSpecular
+    );
+
+
+    GLfloat ambient[] =
+    {
+        0.20f,
+        0.20f,
+        0.20f,
+        1.0f
+    };
+
+    glLightModelfv(
+        GL_LIGHT_MODEL_AMBIENT,
+        ambient
+    );
+
+
+    glEnable(
+        GL_TEXTURE_2D
+    );
+
+    glTexEnvi(
+        GL_TEXTURE_ENV,
+        GL_TEXTURE_ENV_MODE,
+        GL_MODULATE
+    );
+
+
+    makeProceduralTexture(
+        texWood,
+        0
+    );
+
+    makeProceduralTexture(
+        texTile,
+        1
+    );
+
+    makeProceduralTexture(
+        texWall,
+        2
+    );
+
+
+    glDisable(
+        GL_TEXTURE_2D
+    );
+
+
+    glutSetCursor(
+        GLUT_CURSOR_NONE
+    );
+}
+
+int main(
+    int argc,
+    char** argv
+)
+{
+    glutInit(
+        &argc,
+        argv
+    );
+
+    glutInitDisplayMode(
+        GLUT_DOUBLE |
+        GLUT_RGB |
+        GLUT_DEPTH
+    );
+
+    glutInitWindowSize(
+        1200,
+        800
+    );
+
+    glutInitWindowPosition(
+        80,
+        40
+    );
+
+    glutCreateWindow(
+        "Grand 3D Library - W/S/A/D Move | Mouse Look | LEFT CLICK Computer/Magic Book | M Both Books | F Fan | L Light | E Door | R Reset"
+    );
+
+
+    init();
+
+
+    glutDisplayFunc(
+        display
+    );
+
+    glutReshapeFunc(
+        reshape
+    );
+
+    glutKeyboardFunc(
+        keyDown
+    );
+
+    glutKeyboardUpFunc(
+        keyUp
+    );
+
+    glutPassiveMotionFunc(
+        mouseMove
+    );
+
+    glutMouseFunc(
+        handleMouseClick
+    );
+
+    glutTimerFunc(
+        16,
+        update,
+        0
+    );
+
+
+    glutMainLoop();
+
+    return 0;
+}
